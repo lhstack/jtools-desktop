@@ -1,0 +1,9 @@
+/target
+/dist
+/node_modules
+/runtime
+/src-tauri/target
+/.idea
+/.vscode
+/.tmp-*
+*.log

@@ -1,0 +1,50 @@
+{
+  "id": "demo-plugin-vue",
+  "name": "Demo Plugin Vue TS",
+  "version": "0.1.0",
+  "description": "jtools 插件开发模板（Vite + Vue3 + TypeScript + 全能力示例）",
+  "author": "your-name",
+  "entry": "index.html",
+  "permissions": [
+    "system.open_url",
+    "clipboard.write",
+    "clipboard.read",
+    "window.control",
+    "system.plugin.reload",
+    "system.exec",
+    "fs.system.read",
+    "fs.system.write",
+    "fs.read",
+    "fs.write",
+    "fs.list",
+    "fs.delete",
+    "cache.read",
+    "cache.write"
+  ],
+  "commands": [
+    {
+      "id": "demo-search",
+      "title": "Demo 搜索模式（Vue）",
+      "mode": "search",
+      "keywords": ["demo", "模板", "search", "vue"],
+      "description": "全局搜索钩子示例（Vite + Vue）"
+    },
+    {
+      "id": "demo-action",
+      "title": "Demo 动作模式（Vue）",
+      "mode": "action",
+      "keywords": ["action", "copy", "open", "vue"],
+      "description": "直接执行动作示例"
+    },
+    {
+      "id": "demo-view",
+      "title": "Demo 视图模式（Vue）",
+      "mode": "view",
+      "keywords": ["view", "plugin"],
+      "description": "插件完整界面示例"
+    }
+  ],
+  "keywords": ["demo", "template", "plugin", "vite", "vue3"],
+  "platforms": ["windows"],
+  "min_app_version": "0.1.0"
+}

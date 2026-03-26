@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Web Search</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: "Segoe UI Variable Text", "Microsoft YaHei UI", sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        padding: 12px;
+        background: #f7f8fb;
+        color: #1f1f1f;
+      }
+
+      .hint {
+        margin: 0;
+        padding: 8px 10px;
+        border-radius: 10px;
+        border: 1px dashed #c8d0e2;
+        font-size: 13px;
+        color: #62708f;
+        background: #ffffff;
+      }
+
+      .list {
+        display: grid;
+        gap: 6px;
+        margin-top: 10px;
+      }
+
+      .item {
+        width: 100%;
+        border: 1px solid #d7def0;
+        border-radius: 10px;
+        padding: 9px 10px;
+        background: #ffffff;
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .item:hover,
+      .item:focus-visible {
+        outline: none;
+        border-color: #9cb2ff;
+        background: #eef3ff;
+      }
+
+      .title {
+        display: block;
+        font-size: 14px;
+        font-weight: 600;
+      }
+
+      .subtitle {
+        display: block;
+        margin-top: 2px;
+        font-size: 12px;
+        color: #68758f;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+    </style>
+  </head>
+  <body>
+    <p class="hint" id="hint">输入关键词后，插件会在下方返回候选结果。</p>
+    <div class="list" id="list"></div>
+
+    <script>
+      const hint = document.getElementById("hint");
+      const list = document.getElementById("list");
+      let currentItems = [];
+
+      function isUrl(text) {
+        return /^https?:\/\//i.test(text);
+      }
+
+      function searchUrl(query) {
+        return `https://www.baidu.com/s?wd=${encodeURIComponent(query)}`;
+      }
+
+      function normalizeItems(query) {
+        const value = query.trim();
+        if (!value) {
+          return [];
+        }
+        if (isUrl(value)) {
+          return [
+            {
+              title: "打开链接",
+              subtitle: value,
+              action: { type: "open_url", url: value },
+            },
+          ];
+        }
+        return [
+          {
+            title: `百度搜索 "${value}"`,
+            subtitle: "https://www.baidu.com",
+            action: { type: "open_url", url: searchUrl(value) },
+          },
+          {
+            title: `直接访问 "${value}"`,
+            subtitle: `https://${value}`,
+            action: { type: "open_url", url: `https://${value}` },
+          },
+        ];
+      }
+
+      function hookItems(query) {
+        return normalizeItems(query).map((item, index) => ({
+          title: item.title,
+          subtitle: item.subtitle,
+          score: 86 - index * 2,
+          action: { open_url: item.action.url },
+        }));
+      }
+
+      function triggerAction(item) {
+        if (!item) {
+          return;
+        }
+        if (item.action.type === "open_url") {
+          parent.postMessage(
+            {
+              type: "jtools-plugin-action",
+              action: "open_url",
+              url: item.action.url,
+            },
+            "*",
+          );
+        }
+      }
+
+      function render(query) {
+        currentItems = normalizeItems(query);
+        list.innerHTML = "";
+
+        if (currentItems.length === 0) {
+          hint.textContent = "输入关键词后，插件会在下方返回候选结果。";
+          return;
+        }
+
+        hint.textContent = `共 ${currentItems.length} 项，双击或按 Enter 执行第一项。`;
+
+        for (const item of currentItems) {
+          const button = document.createElement("button");
+          button.className = "item";
+          button.type = "button";
+          button.innerHTML = `<span class="title">${item.title}</span><span class="subtitle">${item.subtitle}</span>`;
+          button.addEventListener("dblclick", () => triggerAction(item));
+          button.addEventListener("click", () => triggerAction(item));
+          list.appendChild(button);
+        }
+      }
+
+      window.addEventListener("message", (event) => {
+        const data = event.data || {};
+        if (data.type === "jtools-host-query") {
+          render(String(data.query || ""));
+        } else if (data.type === "jtools-host-submit") {
+          triggerAction(currentItems[0]);
+        } else if (data.type === "jtools-hook-search") {
+          parent.postMessage(
+            {
+              type: "jtools-hook-results",
+              pluginId: "web-search",
+              token: Number(data.token || 0),
+              items: hookItems(String(data.query || "")),
+            },
+            "*",
+          );
+        }
+      });
+
+      parent.postMessage({ type: "jtools-plugin-ready" }, "*");
+    </script>
+  </body>
+</html>

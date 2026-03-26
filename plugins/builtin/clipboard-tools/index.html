@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Clipboard Tools</title>
+    <style>
+      body {
+        margin: 0;
+        padding: 12px;
+        font-family: "Segoe UI Variable Text", "Microsoft YaHei UI", sans-serif;
+        background: #f7f8fb;
+        color: #1f1f1f;
+      }
+
+      .hint {
+        margin: 0;
+        padding: 8px 10px;
+        border: 1px dashed #cfd7ea;
+        border-radius: 10px;
+        font-size: 12px;
+        color: #64748f;
+        background: #fff;
+      }
+
+      .list {
+        display: grid;
+        gap: 6px;
+        margin-top: 10px;
+      }
+
+      .item {
+        width: 100%;
+        border: 1px solid #d6dff4;
+        border-radius: 10px;
+        background: #fff;
+        padding: 8px 10px;
+        text-align: left;
+        cursor: pointer;
+      }
+
+      .item:hover {
+        border-color: #96abff;
+        background: #edf2ff;
+      }
+
+      .title {
+        display: block;
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .subtitle {
+        display: block;
+        margin-top: 2px;
+        color: #6d7991;
+        font-size: 12px;
+      }
+    </style>
+  </head>
+  <body>
+    <p class="hint" id="hint">输入关键词过滤文本模板，回车复制第一项。</p>
+    <div class="list" id="list"></div>
+
+    <script>
+      const hint = document.getElementById("hint");
+      const list = document.getElementById("list");
+      const templates = [
+        { title: "常用邮箱", text: "name@example.com", subtitle: "个人邮箱模板" },
+        { title: "会议纪要标题", text: "会议纪要 - ", subtitle: "快速新建纪要标题" },
+        { title: "日报模板", text: "今日完成:\n明日计划:\n问题与风险:", subtitle: "工作日报结构" },
+        { title: "代码评审意见", text: "建议补充边界条件处理与错误日志。", subtitle: "评审常用语句" },
+      ];
+      let currentItems = templates.slice(0, 4);
+
+      function filteredItems(query) {
+        const value = query.trim().toLowerCase();
+        if (!value) {
+          return templates.slice(0, 4);
+        }
+        return templates.filter((item) => {
+          return (
+            item.title.toLowerCase().includes(value) ||
+            item.text.toLowerCase().includes(value) ||
+            item.subtitle.toLowerCase().includes(value)
+          );
+        });
+      }
+
+      function copyItem(item) {
+        if (!item) {
+          return;
+        }
+        parent.postMessage(
+          {
+            type: "jtools-plugin-action",
+            action: "copy_text",
+            text: item.text,
+          },
+          "*",
+        );
+      }
+
+      function render(query) {
+        currentItems = filteredItems(query);
+        list.innerHTML = "";
+        if (currentItems.length === 0) {
+          hint.textContent = "没有匹配模板，请换个关键词。";
+          return;
+        }
+        hint.textContent = `匹配 ${currentItems.length} 项，点击即可复制。`;
+        for (const item of currentItems) {
+          const button = document.createElement("button");
+          button.className = "item";
+          button.type = "button";
+          button.innerHTML = `<span class="title">${item.title}</span><span class="subtitle">${item.subtitle}</span>`;
+          button.addEventListener("click", () => copyItem(item));
+          button.addEventListener("dblclick", () => copyItem(item));
+          list.appendChild(button);
+        }
+      }
+
+      function hookItems(query) {
+        return filteredItems(query)
+          .slice(0, 4)
+          .map((item, index) => ({
+            title: item.title,
+            subtitle: item.subtitle,
+            score: 82 - index * 2,
+            action: { copy_text: item.text },
+          }));
+      }
+
+      window.addEventListener("message", (event) => {
+        const data = event.data || {};
+        if (data.type === "jtools-host-query") {
+          render(String(data.query || ""));
+        } else if (data.type === "jtools-host-submit") {
+          copyItem(currentItems[0]);
+        } else if (data.type === "jtools-hook-search") {
+          parent.postMessage(
+            {
+              type: "jtools-hook-results",
+              pluginId: "clipboard-tools",
+              token: Number(data.token || 0),
+              items: hookItems(String(data.query || "")),
+            },
+            "*",
+          );
+        }
+      });
+
+      render("");
+      parent.postMessage({ type: "jtools-plugin-ready" }, "*");
+    </script>
+  </body>
+</html>

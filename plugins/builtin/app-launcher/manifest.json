@@ -1,0 +1,21 @@
+{
+  "id": "app-launcher",
+  "name": "App Launcher",
+  "version": "0.1.0",
+  "description": "快速启动系统应用和常用桌面程序",
+  "author": "jtools",
+  "entry": "index.html",
+  "permissions": ["shell.open"],
+  "commands": [
+    {
+      "id": "launch-app",
+      "title": "启动应用",
+      "mode": "action",
+      "keywords": ["app", "open", "启动", "应用"],
+      "description": "根据关键字启动已配置应用"
+    }
+  ],
+  "keywords": ["launcher", "应用启动"],
+  "platforms": ["windows"],
+  "min_app_version": "0.1.0"
+}
