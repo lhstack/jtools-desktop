@@ -80,7 +80,7 @@ jobs:
         id: artifact_paths
         shell: pwsh
         run: |
-          $raw = @'${{ steps.tauri_build.outputs.artifactPaths }}'@
+          $raw = '${{ steps.tauri_build.outputs.artifactPaths }}'
           if ([string]::IsNullOrWhiteSpace($raw) -or $raw -eq '[]') {
             exit 0
           }
