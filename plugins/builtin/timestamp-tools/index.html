@@ -1,0 +1,483 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Timestamp Tools</title>
+    <style>
+      :root {
+        color-scheme: light;
+        --bg: #ffffff;
+        --panel-bg: #f7f9ff;
+        --card-bg: #ffffff;
+        --border: #d9def2;
+        --primary: #5b5bd6;
+        --text: #162037;
+        --muted: #5f6b87;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        padding: 12px;
+        min-width: 600px;
+        background: var(--bg);
+        color: var(--text);
+        font-family: "Segoe UI Variable Text", "Microsoft YaHei UI", sans-serif;
+      }
+      .panel {
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        background: var(--panel-bg);
+        padding: 12px 12px 16px;
+      }
+      .live {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: #ffffff;
+        padding: 10px 12px;
+        margin-bottom: 10px;
+        display: grid;
+        gap: 6px;
+      }
+      .live-row {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .live-right {
+        margin-left: auto;
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        min-width: 0;
+      }
+      .live-label {
+        color: var(--muted);
+        font-size: 12px;
+        white-space: nowrap;
+      }
+      .live-value {
+        font-size: 12px;
+        font-family: "Cascadia Mono", "Consolas", monospace;
+        color: #1c2a4c;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .live-copy {
+        padding: 4px 8px;
+        font-size: 11px;
+        line-height: 1;
+        flex: 0 0 auto;
+      }
+      .hint {
+        margin: 0 0 10px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .list {
+        display: grid;
+        gap: 8px;
+        padding-right: 0;
+        padding-bottom: 16px;
+      }
+      .card {
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        background: var(--card-bg);
+        padding: 10px 12px;
+      }
+      .card-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+      .card-title {
+        font-size: 14px;
+        font-weight: 700;
+      }
+      .copy-btn {
+        border: 1px solid #c8d3fb;
+        border-radius: 8px;
+        background: #eef2ff;
+        color: #2a4ac8;
+        font-size: 12px;
+        font-weight: 600;
+        line-height: 1;
+        padding: 6px 10px;
+        cursor: pointer;
+      }
+      .copy-btn:hover {
+        background: #e4ebff;
+      }
+      .copy-btn:disabled {
+        cursor: not-allowed;
+        opacity: 0.45;
+      }
+      .label {
+        margin-top: 8px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .value {
+        margin-top: 2px;
+        font-size: 13px;
+        color: #1c2a4c;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="panel">
+      <section class="live">
+        <div class="live-row">
+          <span class="live-label">当前毫秒时间戳</span>
+          <div class="live-right">
+            <code id="live-millis" class="live-value">-</code>
+            <button class="copy-btn live-copy" type="button" data-live-copy="millis">复制</button>
+          </div>
+        </div>
+        <div class="live-row">
+          <span class="live-label">当前秒级时间戳</span>
+          <div class="live-right">
+            <code id="live-seconds" class="live-value">-</code>
+            <button class="copy-btn live-copy" type="button" data-live-copy="seconds">复制</button>
+          </div>
+        </div>
+        <div class="live-row">
+          <span class="live-label">当前时间（GMT+8）</span>
+          <div class="live-right">
+            <code id="live-gmt8" class="live-value">-</code>
+            <button class="copy-btn live-copy" type="button" data-live-copy="gmt8">复制</button>
+          </div>
+        </div>
+        <div class="live-row">
+          <span class="live-label">当前时间（UTC）</span>
+          <div class="live-right">
+            <code id="live-utc" class="live-value">-</code>
+            <button class="copy-btn live-copy" type="button" data-live-copy="utc">复制</button>
+          </div>
+        </div>
+      </section>
+      <p class="hint">启动器中可直接输入：<code>ts 1700000000</code>、<code>timestamp 2025-01-01 12:00:00</code>、<code>ts now</code></p>
+      <section id="cards" class="list"></section>
+    </main>
+    <script>
+      const PLUGIN_ID = "timestamp-tools";
+      const EMPTY_VALUE = "—";
+      const cardsEl = document.getElementById("cards");
+      const panelEl = document.querySelector(".panel");
+      const liveMillisEl = document.getElementById("live-millis");
+      const liveSecondsEl = document.getElementById("live-seconds");
+      const liveGmt8El = document.getElementById("live-gmt8");
+      const liveUtcEl = document.getElementById("live-utc");
+
+      let activeInput = "";
+      let liveTimer = 0;
+      const rows = [
+        { id: "local", label: "本地时间" },
+        { id: "utc", label: "UTC 时间" },
+        { id: "seconds", label: "Unix 秒时间戳" },
+        { id: "millis", label: "Unix 毫秒时间戳" },
+      ];
+
+      function htmlEscape(value) {
+        return String(value)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
+
+      function sendCopy(text) {
+        window.parent.postMessage(
+          {
+            type: "jtools-plugin-action",
+            action: "copy_text",
+            text,
+          },
+          "*",
+        );
+      }
+
+      function getLiveValue(kind) {
+        if (kind === "millis") return liveMillisEl?.textContent || "";
+        if (kind === "seconds") return liveSecondsEl?.textContent || "";
+        if (kind === "gmt8") return liveGmt8El?.textContent || "";
+        if (kind === "utc") return liveUtcEl?.textContent || "";
+        return "";
+      }
+
+      function bindLiveCopyButtons() {
+        document.querySelectorAll("[data-live-copy]").forEach((button) => {
+          button.addEventListener("click", () => {
+            const kind = button.getAttribute("data-live-copy") || "";
+            const value = getLiveValue(kind).trim();
+            if (!value || value === "-") {
+              return;
+            }
+            sendCopy(value);
+            const prev = button.textContent || "复制";
+            button.textContent = "已复制 ✓";
+            window.setTimeout(() => {
+              button.textContent = prev;
+            }, 1200);
+          });
+        });
+      }
+
+      function reportPluginHeight() {
+        window.requestAnimationFrame(() => {
+          const panelHeight = panelEl ? panelEl.scrollHeight : 0;
+          const bodyStyle = window.getComputedStyle(document.body);
+          const bodyPaddingTop = Number.parseFloat(bodyStyle.paddingTop || "0");
+          const bodyPaddingBottom = Number.parseFloat(bodyStyle.paddingBottom || "0");
+          const height = Math.ceil(panelHeight + bodyPaddingTop + bodyPaddingBottom + 4);
+          window.parent.postMessage(
+            {
+              type: "jtools-plugin-height",
+              height,
+            },
+            "*",
+          );
+        });
+      }
+
+      function timezoneLabel(date) {
+        const offset = -date.getTimezoneOffset();
+        const sign = offset >= 0 ? "+" : "-";
+        const abs = Math.abs(offset);
+        const hours = String(Math.floor(abs / 60)).padStart(2, "0");
+        const minutes = String(abs % 60).padStart(2, "0");
+        return `UTC${sign}${hours}:${minutes}`;
+      }
+
+      function formatDate(date) {
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, "0");
+        const day = String(date.getDate()).padStart(2, "0");
+        const hour = String(date.getHours()).padStart(2, "0");
+        const minute = String(date.getMinutes()).padStart(2, "0");
+        const second = String(date.getSeconds()).padStart(2, "0");
+        return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
+      }
+
+      function formatUtc(date) {
+        const year = date.getUTCFullYear();
+        const month = String(date.getUTCMonth() + 1).padStart(2, "0");
+        const day = String(date.getUTCDate()).padStart(2, "0");
+        const hour = String(date.getUTCHours()).padStart(2, "0");
+        const minute = String(date.getUTCMinutes()).padStart(2, "0");
+        const second = String(date.getUTCSeconds()).padStart(2, "0");
+        return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
+      }
+
+      function formatWithOffset(date, offsetHours) {
+        const shifted = new Date(date.getTime() + offsetHours * 60 * 60 * 1000);
+        const year = shifted.getUTCFullYear();
+        const month = String(shifted.getUTCMonth() + 1).padStart(2, "0");
+        const day = String(shifted.getUTCDate()).padStart(2, "0");
+        const hour = String(shifted.getUTCHours()).padStart(2, "0");
+        const minute = String(shifted.getUTCMinutes()).padStart(2, "0");
+        const second = String(shifted.getUTCSeconds()).padStart(2, "0");
+        const sign = offsetHours >= 0 ? "+" : "-";
+        return `${year}-${month}-${day} ${hour}:${minute}:${second} GMT${sign}${Math.abs(offsetHours)}`;
+      }
+
+      function refreshLiveClock() {
+        const now = new Date();
+        if (liveMillisEl) {
+          liveMillisEl.textContent = String(now.getTime());
+        }
+        if (liveSecondsEl) {
+          liveSecondsEl.textContent = String(Math.floor(now.getTime() / 1000));
+        }
+        if (liveGmt8El) {
+          liveGmt8El.textContent = formatWithOffset(now, 8);
+        }
+        if (liveUtcEl) {
+          liveUtcEl.textContent = `${formatUtc(now)} UTC`;
+        }
+      }
+
+      function parseInputToDate(value) {
+        const text = String(value || "").trim();
+        if (!text) {
+          return null;
+        }
+        if (text.toLowerCase() === "now") {
+          return new Date();
+        }
+        if (/^\d{10}$/.test(text)) {
+          return new Date(Number(text) * 1000);
+        }
+        if (/^\d{13}$/.test(text)) {
+          return new Date(Number(text));
+        }
+        let normalized = text.replace(/\//g, "-").replace(/\s+/, " ");
+        if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) {
+          normalized += " 00:00:00";
+        }
+        if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(normalized)) {
+          normalized += ":00";
+        }
+        const isoCandidate = normalized.includes(" ")
+          ? normalized.replace(" ", "T")
+          : normalized;
+        const date = new Date(isoCandidate);
+        if (Number.isNaN(date.getTime())) {
+          return null;
+        }
+        return date;
+      }
+
+      function buildValues(input) {
+        const date = parseInputToDate(input);
+        if (!date) {
+          return {
+            local: EMPTY_VALUE,
+            utc: EMPTY_VALUE,
+            seconds: EMPTY_VALUE,
+            millis: EMPTY_VALUE,
+          };
+        }
+        return {
+          local: `${formatDate(date)} (${timezoneLabel(date)})`,
+          utc: `${formatUtc(date)} (UTC)`,
+          seconds: String(Math.floor(date.getTime() / 1000)),
+          millis: String(date.getTime()),
+        };
+      }
+
+      function renderCards(input) {
+        const text = String(input || "").trim();
+        if (!text) {
+          cardsEl.innerHTML = `
+            <article class="card">
+              <div class="card-head">
+                <strong class="card-title">等待输入</strong>
+              </div>
+              <div class="label">提示</div>
+              <div class="value">在上方主搜索框输入 <code>ts now</code> 或 <code>timestamp 2025-01-01 12:00:00</code></div>
+            </article>
+          `;
+          reportPluginHeight();
+          return;
+        }
+
+        const values = buildValues(input);
+        cardsEl.innerHTML = rows
+          .map((row) => {
+            const value = values[row.id];
+            const canCopy = value !== EMPTY_VALUE;
+            return `
+            <article class="card">
+              <div class="card-head">
+                <strong class="card-title">${htmlEscape(row.label)}</strong>
+                <button class="copy-btn" type="button" data-copy-value="${htmlEscape(value)}" ${canCopy ? "" : "disabled"}>复制</button>
+              </div>
+              <div class="label">结果</div>
+              <div class="value" title="${htmlEscape(value)}">${htmlEscape(value)}</div>
+            </article>
+          `;
+          })
+          .join("");
+
+        cardsEl.querySelectorAll(".copy-btn[data-copy-value]").forEach((button) => {
+          button.addEventListener("click", () => {
+            const value = button.dataset.copyValue || "";
+            if (!value || value === EMPTY_VALUE) {
+              return;
+            }
+            sendCopy(value);
+            const prev = button.textContent || "复制";
+            button.textContent = "已复制 ✓";
+            window.setTimeout(() => {
+              button.textContent = prev;
+            }, 1200);
+          });
+        });
+        reportPluginHeight();
+      }
+
+      function toHookItems(query) {
+        const match = String(query || "")
+          .trim()
+          .match(/^(\S+)\s+([\s\S]+)$/);
+        if (!match) {
+          return [];
+        }
+        const cmd = match[1].toLowerCase();
+        if (cmd !== "ts" && cmd !== "timestamp") {
+          return [];
+        }
+        const payload = match[2].trim();
+        if (!payload) {
+          return [];
+        }
+        const values = buildValues(payload);
+        if (values.local === EMPTY_VALUE) {
+          return [];
+        }
+        return [
+          { title: values.local, subtitle: "本地时间 · 点击复制", score: 99, action: { copy_text: values.local } },
+          { title: values.utc, subtitle: "UTC 时间 · 点击复制", score: 97, action: { copy_text: values.utc } },
+          { title: values.seconds, subtitle: "Unix 秒时间戳 · 点击复制", score: 96, action: { copy_text: values.seconds } },
+          { title: values.millis, subtitle: "Unix 毫秒时间戳 · 点击复制", score: 95, action: { copy_text: values.millis } },
+        ];
+      }
+
+      function updateInput(value) {
+        activeInput = String(value || "");
+        window.scrollTo({ top: 0, left: 0, behavior: "auto" });
+        renderCards(activeInput);
+        reportPluginHeight();
+      }
+
+      window.addEventListener("message", (event) => {
+        const data = event.data || {};
+        if (data.type === "jtools-host-query") {
+          updateInput(data.query || "");
+          return;
+        }
+        if (data.type === "jtools-host-submit") {
+          const values = buildValues(activeInput);
+          if (values.local !== EMPTY_VALUE) {
+            sendCopy(values.local);
+          }
+          return;
+        }
+        if (data.type === "jtools-hook-search") {
+          window.parent.postMessage(
+            {
+              type: "jtools-hook-results",
+              pluginId: PLUGIN_ID,
+              token: Number(data.token || 0),
+              items: toHookItems(data.query || ""),
+            },
+            "*",
+          );
+        }
+      });
+
+      refreshLiveClock();
+      bindLiveCopyButtons();
+      liveTimer = window.setInterval(refreshLiveClock, 120);
+      window.addEventListener("beforeunload", () => {
+        if (liveTimer) {
+          window.clearInterval(liveTimer);
+          liveTimer = 0;
+        }
+      });
+      updateInput("");
+      reportPluginHeight();
+      window.parent.postMessage({ type: "jtools-plugin-ready" }, "*");
+    </script>
+  </body>
+</html>

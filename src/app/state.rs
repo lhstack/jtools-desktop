@@ -47,9 +47,10 @@ impl DesktopPlatform {
             settings.search_preferences.max_results,
             paths.search_timeout_ms,
         );
+        let enabled_plugins = plugin_registry.enabled_plugins();
         search_engine.register_source(Box::new(BuiltinCommandSource::default()));
         search_engine.register_source(Box::new(StaticCommandSource::from_registry(
-            plugin_registry.enabled_plugins(),
+            enabled_plugins,
         )));
 
         if settings.search_preferences.include_recent {
@@ -119,7 +120,8 @@ impl DesktopPlatform {
                 format!("{} · {}", plugin.manifest.name, command.description)
             };
 
-            let Some(score) = score_plugin_query(&query, &command.title, &subtitle, &keywords) else {
+            let Some(score) = score_plugin_query(&query, &command.title, &subtitle, &keywords)
+            else {
                 continue;
             };
 
@@ -140,12 +142,9 @@ impl DesktopPlatform {
         }
 
         if items.is_empty() {
-            if let Some(search_command) = plugin
-                .manifest
-                .commands
-                .iter()
-                .find(|command| matches!(command.mode, crate::plugin::manifest::CommandMode::Search))
-            {
+            if let Some(search_command) = plugin.manifest.commands.iter().find(|command| {
+                matches!(command.mode, crate::plugin::manifest::CommandMode::Search)
+            }) {
                 let fallback_action = search_fallback_action(
                     &plugin.manifest.id,
                     &search_command.id,
@@ -259,9 +258,10 @@ impl DesktopPlatform {
             self.settings.search_preferences.max_results,
             self.paths.search_timeout_ms,
         );
+        let enabled_plugins = self.plugin_registry.enabled_plugins();
         search_engine.register_source(Box::new(BuiltinCommandSource::default()));
         search_engine.register_source(Box::new(StaticCommandSource::from_registry(
-            self.plugin_registry.enabled_plugins(),
+            enabled_plugins,
         )));
         if self.settings.search_preferences.include_recent {
             let recent_entries: Vec<RecentEntry> = self.recent_store.load_or_default().await?;
@@ -310,10 +310,18 @@ impl DesktopPlatform {
     }
 }
 
-fn score_plugin_query(query: &str, title: &str, subtitle: &str, keywords: &[String]) -> Option<f32> {
+fn score_plugin_query(
+    query: &str,
+    title: &str,
+    subtitle: &str,
+    keywords: &[String],
+) -> Option<f32> {
     let title = title.to_lowercase();
     let subtitle = subtitle.to_lowercase();
-    let keywords: Vec<String> = keywords.iter().map(|keyword| keyword.to_lowercase()).collect();
+    let keywords: Vec<String> = keywords
+        .iter()
+        .map(|keyword| keyword.to_lowercase())
+        .collect();
 
     if title == query {
         return Some(100.0);
@@ -367,21 +375,55 @@ fn web_search_target(query: &str) -> String {
 }
 
 async fn seed_builtin_plugins(paths: &AppPaths) -> Result<()> {
+    const REMOVED_DEFAULT_PLUGIN_IDS: [&str; 4] = [
+        "app-launcher",
+        "clipboard-tools",
+        "file-search",
+        "web-search",
+    ];
+
     let removed_store = JsonStore::<Vec<String>>::new(paths.removed_builtin_file.clone());
-    let removed: HashSet<String> = removed_store
-        .load_or_default()
-        .await?
-        .into_iter()
-        .collect();
+    let removed: HashSet<String> = removed_store.load_or_default().await?.into_iter().collect();
+
+    let mut existing = tokio::fs::read_dir(&paths.plugins_dir).await?;
+    while let Some(entry) = existing.next_entry().await? {
+        if !entry.file_type().await?.is_dir() {
+            continue;
+        }
+        let plugin_id = entry.file_name().to_string_lossy().to_string();
+        let plugin_dir = entry.path();
+        let is_removed_legacy = REMOVED_DEFAULT_PLUGIN_IDS
+            .iter()
+            .any(|legacy| legacy == &plugin_id.as_str());
+        let has_manifest = plugin_dir.join("manifest.json").exists();
+        if is_removed_legacy || !has_manifest {
+            tokio::fs::remove_dir_all(plugin_dir).await?;
+        }
+    }
 
     let builtin_root = builtin_root().filter(|path| path.exists());
     let Some(builtin_root) = builtin_root else {
         return Ok(());
     };
 
+    for plugin_id in REMOVED_DEFAULT_PLUGIN_IDS {
+        if builtin_root.join(plugin_id).join("manifest.json").exists() {
+            continue;
+        }
+        let legacy_dir = paths.plugins_dir.join(plugin_id);
+        if legacy_dir.exists() {
+            tokio::fs::remove_dir_all(legacy_dir).await?;
+        }
+    }
+
     let mut entries = tokio::fs::read_dir(builtin_root).await?;
     while let Some(entry) = entries.next_entry().await? {
         if !entry.file_type().await?.is_dir() {
+            continue;
+        }
+
+        let source_dir = entry.path();
+        if !source_dir.join("manifest.json").exists() {
             continue;
         }
 
@@ -396,7 +438,7 @@ async fn seed_builtin_plugins(paths: &AppPaths) -> Result<()> {
         if target_dir.exists() {
             tokio::fs::remove_dir_all(&target_dir).await?;
         }
-        copy_dir_recursive(entry.path(), &target_dir).await?;
+        copy_dir_recursive(source_dir, &target_dir).await?;
     }
     Ok(())
 }
@@ -431,7 +473,7 @@ mod tests {
         let platform = DesktopPlatform::bootstrap(temp.path()).await?;
         let report = platform.startup_report();
         assert_eq!(report.hotkey, "Alt+Space");
-        assert_eq!(report.loaded_plugins.total, 4);
+        assert_eq!(report.loaded_plugins.total, 2);
         Ok(())
     }
 }

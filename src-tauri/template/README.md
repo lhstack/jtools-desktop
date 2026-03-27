@@ -13,6 +13,7 @@
 ```text
 .
 ├─ manifest.json
+├─ icon.png
 ├─ package.json
 ├─ tsconfig.json
 ├─ vite.config.js
@@ -91,7 +92,8 @@ bun run build:jtp
 1. 检查 `dist/index.html` 是否存在
 2. 打包 `manifest.json`
 3. 将 `dist/**` 平铺到 jtp 根目录
-4. 输出到 `release/<plugin-id>-<version>.jtp`
+4. 如果 `manifest.icon` 存在且文件可读，会一并打包图标文件
+5. 输出到 `release/<plugin-id>-<version>.jtp`
 
 即 jtp 内部结构会是：
 

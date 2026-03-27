@@ -1,6 +1,12 @@
 {
   "identifier": "default",
   "description": "Default capability set for the main jtools window",
-  "windows": ["main"],
-  "permissions": ["core:default", "opener:default"]
+  "windows": ["main", "plugin-*"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-create",
+    "core:window:allow-set-icon",
+    "core:webview:allow-create-webview-window",
+    "opener:default"
+  ]
 }

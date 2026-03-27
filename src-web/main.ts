@@ -1,4 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { createApp, h, type App as VueApp } from "vue";
+import ElementPlus, { ElAside, ElButton, ElContainer, ElMain, ElMenu, ElMenuItem } from "element-plus";
+import "element-plus/dist/index.css";
 import "./style.css";
 
 type SearchAction =
@@ -112,6 +116,7 @@ type Elements = {
   hotkey: HTMLSpanElement;
   pluginContext: HTMLElement;
   pluginName: HTMLSpanElement;
+  pluginOpenWindow: HTMLButtonElement;
   pluginClear: HTMLButtonElement;
   pluginHost: HTMLElement;
   pluginFrame: HTMLIFrameElement;
@@ -121,12 +126,11 @@ type Elements = {
 class SearchApp {
   private readonly launcherWidth = 720;
   private readonly managerWidth = 1120;
-  private readonly managerHeight = 700;
+  private readonly managerHeight = 756;
   private readonly maxWindowHeight = 760;
   private readonly minWindowHeight = 116;
-  private readonly resultsViewportMaxHeight = 240;
-  private readonly pluginViewportMinHeight = 220;
-  private readonly pluginViewportMaxHeight = 340;
+  private readonly pluginViewportMinHeight = 120;
+  private readonly pluginViewportMaxHeight = 2000;
 
   private app = document.querySelector<HTMLDivElement>("#app");
   private elements: Elements | null = null;
@@ -150,12 +154,12 @@ class SearchApp {
   private activePlugin: ActivePlugin | null = null;
   private pendingPluginQuery = "";
   private pluginFrameReady = false;
-  private pluginViewportHeight = 280;
   private hookToken = 0;
   private hookFrames = new Map<string, HookFrame>();
   private hookExpected = new Map<number, Set<string>>();
   private hookBuckets = new Map<number, SearchItem[]>();
   private hookResolvers = new Map<number, (items: SearchItem[]) => void>();
+  private manageVueApp: VueApp | null = null;
 
   async init() {
     if (!this.app) {
@@ -193,6 +197,7 @@ class SearchApp {
             <section class="plugin-context hidden" id="plugin-context">
               <div class="plugin-chip">
                 <span id="plugin-name"></span>
+                <button id="plugin-open-window" class="plugin-action-button" type="button" title="在新窗口打开">新窗口</button>
                 <button id="plugin-clear" class="plugin-clear" type="button" title="关闭插件">×</button>
               </div>
             </section>
@@ -228,22 +233,7 @@ class SearchApp {
           </section>
 
           <section class="manage-center hidden" id="manage-center">
-            <div class="manage-topbar">
-              <div class="manage-tab">管理中心</div>
-              <button id="manage-close-button" class="manage-close" type="button">返回启动器</button>
-            </div>
-            <div class="manage-layout">
-              <aside class="manage-sidebar">
-                <h3 class="manage-side-title">偏好设置</h3>
-                <button class="manage-side-item is-active" type="button" data-section="plugins">插件管理</button>
-                <button class="manage-side-item" type="button" data-section="shortcuts">快捷方式</button>
-                <button class="manage-side-item" type="button" data-section="commands">所有命令</button>
-                <button class="manage-side-item" type="button" data-section="settings">设置</button>
-              </aside>
-              <section class="manage-content">
-                <div id="manage-content-body"></div>
-              </section>
-            </div>
+            <div id="manage-vue-root"></div>
           </section>
 
           <section class="hook-host hidden" id="hook-host"></section>
@@ -254,6 +244,8 @@ class SearchApp {
     const shell = this.queryElement<HTMLElement>("#launcher-shell");
     const launcherBody = this.queryElement<HTMLElement>("#launcher-body");
     const manageCenter = this.queryElement<HTMLElement>("#manage-center");
+    const manageVueRoot = this.queryElement<HTMLElement>("#manage-vue-root");
+    this.mountManageShell(manageVueRoot);
     const manageOpenButton = this.queryElement<HTMLButtonElement>("#manage-open-button");
     const manageCloseButton = this.queryElement<HTMLButtonElement>("#manage-close-button");
     const manageContentBody = this.queryElement<HTMLDivElement>("#manage-content-body");
@@ -267,6 +259,7 @@ class SearchApp {
     const hotkey = this.queryElement<HTMLSpanElement>("#hotkey-label");
     const pluginContext = this.queryElement<HTMLElement>("#plugin-context");
     const pluginName = this.queryElement<HTMLSpanElement>("#plugin-name");
+    const pluginOpenWindow = this.queryElement<HTMLButtonElement>("#plugin-open-window");
     const pluginClear = this.queryElement<HTMLButtonElement>("#plugin-clear");
     const pluginHost = this.queryElement<HTMLElement>("#plugin-host");
     const pluginFrame = this.queryElement<HTMLIFrameElement>("#plugin-frame");
@@ -289,6 +282,7 @@ class SearchApp {
       hotkey,
       pluginContext,
       pluginName,
+      pluginOpenWindow,
       pluginClear,
       pluginHost,
       pluginFrame,
@@ -376,9 +370,9 @@ class SearchApp {
       await this.closeManageCenter();
     });
 
-    shell.querySelectorAll<HTMLButtonElement>(".manage-side-item[data-section]").forEach((button) => {
-      button.addEventListener("click", async () => {
-        const section = button.dataset.section as ManageSection | undefined;
+    shell.querySelectorAll<HTMLElement>(".manage-side-item[data-section]").forEach((item) => {
+      item.addEventListener("click", async () => {
+        const section = item.dataset.section as ManageSection | undefined;
         if (!section) {
           return;
         }
@@ -389,6 +383,9 @@ class SearchApp {
 
     pluginClear.addEventListener("click", async () => {
       await this.clearActivePlugin();
+    });
+    pluginOpenWindow.addEventListener("click", async () => {
+      await this.openActivePluginInNewWindow();
     });
 
     reloadButton.addEventListener("click", async () => {
@@ -411,6 +408,80 @@ class SearchApp {
     window.addEventListener("message", this.onPluginMessage);
     window.addEventListener("keydown", this.onWindowKeydown);
     input.focus();
+  }
+
+  private mountManageShell(root: HTMLElement) {
+    if (this.manageVueApp) {
+      this.manageVueApp.unmount();
+      this.manageVueApp = null;
+    }
+
+    const sideItem = (label: string, section: ManageSection, active = false) =>
+      h(
+        ElMenuItem,
+        {
+          class: ["manage-side-item", active ? "is-active" : ""],
+          index: section,
+          "data-section": section,
+        },
+        () => label,
+      );
+
+    const ManageShell = {
+      render: () =>
+        h(ElContainer, { class: "manage-shell", direction: "vertical" }, () => [
+          h("header", { class: "manage-topbar" }, [
+            h("div", { class: "manage-tab" }, "管理中心"),
+            h(
+              ElButton,
+              {
+                id: "manage-close-button",
+                class: "manage-close",
+                size: "small",
+                plain: true,
+              },
+              () => "返回启动器",
+            ),
+          ]),
+          h(
+            ElContainer,
+            { class: "manage-layout" },
+            () => [
+              h(
+                ElAside,
+                { class: "manage-sidebar", width: "220px" },
+                () => [
+                  h("div", { class: "manage-sidebar-body" }, [
+                    h("h3", { class: "manage-side-title" }, "偏好设置"),
+                    h(
+                      ElMenu,
+                      {
+                        class: "manage-menu",
+                        defaultActive: "plugins",
+                        collapseTransition: false,
+                      },
+                      () => [
+                        sideItem("插件管理", "plugins", true),
+                        sideItem("快捷方式", "shortcuts"),
+                        sideItem("所有命令", "commands"),
+                        sideItem("设置", "settings"),
+                      ],
+                    ),
+                  ]),
+                ],
+              ),
+              h(ElMain, { class: "manage-content" }, () =>
+                h("div", { id: "manage-content-body", class: "manage-content-body" }),
+              ),
+            ],
+          ),
+        ]),
+    };
+
+    const app = createApp(ManageShell);
+    app.use(ElementPlus);
+    app.mount(root);
+    this.manageVueApp = app;
   }
 
   private onWindowKeydown = async (event: KeyboardEvent) => {
@@ -529,7 +600,6 @@ class SearchApp {
           this.pluginViewportMinHeight,
           Math.min(this.pluginViewportMaxHeight, Math.round(data.height)),
         );
-        this.pluginViewportHeight = clamped;
         if (this.elements) {
           this.elements.pluginFrame.style.height = `${clamped}px`;
         }
@@ -846,6 +916,76 @@ class SearchApp {
       this.results.length === 0 ? 0 : Math.min(this.selectedIndex, this.results.length - 1);
   }
 
+  private async openPluginWindow(pluginId: string, pluginName: string, query: string) {
+    const normalizedPluginId = pluginId.trim();
+    if (!normalizedPluginId) {
+      return false;
+    }
+    const resolvedName = pluginName.trim() || "插件";
+    const params = new URLSearchParams({
+      mode: "plugin",
+      pluginId: normalizedPluginId,
+      pluginName: resolvedName,
+      query,
+    });
+    const label = `plugin-${normalizedPluginId}-${Date.now()}`;
+    const webview = new WebviewWindow(label, {
+      url: `index.html?${params.toString()}`,
+      title: `${resolvedName} · jtools`,
+      width: 1120,
+      height: 760,
+      minWidth: 720,
+      minHeight: 480,
+      center: true,
+      alwaysOnTop: false,
+      decorations: true,
+      minimizable: true,
+      maximizable: true,
+      resizable: true,
+    });
+
+    return await new Promise<boolean>((resolve) => {
+      webview.once("tauri://created", () => {
+        void (async () => {
+          await this.applyPluginWindowIcon(webview, normalizedPluginId);
+          resolve(true);
+        })();
+      });
+      webview.once("tauri://error", (error) => {
+        console.error("create plugin window failed", error);
+        resolve(false);
+      });
+    });
+  }
+
+  private async openActivePluginInNewWindow() {
+    if (!this.activePlugin) {
+      return;
+    }
+    const opened = await this.openPluginWindow(
+      this.activePlugin.id,
+      this.activePlugin.name,
+      this.query.trim(),
+    );
+    if (opened) {
+      await this.clearActivePlugin();
+    }
+  }
+
+  private async applyPluginWindowIcon(webview: WebviewWindow, pluginId: string) {
+    try {
+      const icon = await invoke<number[] | null>("plugin_window_icon_bytes", {
+        payload: { pluginId },
+      });
+      if (!icon || icon.length === 0) {
+        return;
+      }
+      await webview.setIcon(icon);
+    } catch (error) {
+      console.error("set plugin window icon failed", error);
+    }
+  }
+
   private async activatePlugin(item: SearchItem) {
     const pluginId = this.resolvePluginId(item);
     if (!pluginId) {
@@ -876,6 +1016,7 @@ class SearchApp {
     if (this.elements) {
       this.elements.input.value = "";
       this.elements.input.focus();
+      this.elements.pluginFrame.style.height = `${this.pluginViewportMinHeight}px`;
     }
 
     await this.loadPluginView();
@@ -917,12 +1058,12 @@ class SearchApp {
     this.selectedIndex = 0;
     this.searchToken += 1;
     this.pluginFrameReady = false;
-    this.pluginViewportHeight = 280;
 
     if (this.elements) {
       this.elements.input.value = "";
       this.elements.input.focus();
       this.elements.pluginFrame.srcdoc = "";
+      this.elements.pluginFrame.style.height = `${this.pluginViewportMinHeight}px`;
       this.elements.pluginHostEmpty.classList.add("hidden");
     }
 
@@ -1065,6 +1206,7 @@ class SearchApp {
     this.elements.manageCenter.classList.toggle("hidden", !this.manageMode);
     this.elements.launcherBody.classList.toggle("hidden", this.manageMode);
     this.elements.manageOpenButton.classList.toggle("is-active", this.manageMode);
+    this.elements.shell.classList.toggle("is-manage-mode", this.manageMode);
 
     if (this.manageMode) {
       this.renderManageCenter();
@@ -1127,8 +1269,14 @@ class SearchApp {
       .join("");
 
     this.elements.results.querySelectorAll<HTMLButtonElement>("[data-result-index]").forEach((button) => {
-      button.addEventListener("click", () => {
-        this.selectedIndex = Number(button.dataset.resultIndex);
+      button.addEventListener("click", async () => {
+        const index = Number(button.dataset.resultIndex);
+        const item = this.results[index];
+        this.selectedIndex = index;
+        if (item?.source_type === "plugin_hook" && "copy_text" in item.action) {
+          await this.execute(item);
+          return;
+        }
         this.syncSelection();
       });
       button.addEventListener("dblclick", async () => {
@@ -1154,9 +1302,9 @@ class SearchApp {
       return;
     }
     this.elements.shell
-      .querySelectorAll<HTMLButtonElement>(".manage-side-item[data-section]")
-      .forEach((button) => {
-        button.classList.toggle("is-active", button.dataset.section === this.manageSection);
+      .querySelectorAll<HTMLElement>(".manage-side-item[data-section]")
+      .forEach((item) => {
+        item.classList.toggle("is-active", item.dataset.section === this.manageSection);
       });
 
     if (this.manageSection === "plugins") {
@@ -1187,24 +1335,15 @@ class SearchApp {
     const disabled = this.status?.disabledPlugins ?? this.plugins.filter((plugin) => !plugin.enabled).length;
     const faulted = this.status?.faultedPlugins ?? 0;
     this.elements.manageContentBody.innerHTML = `
-      <article class="manage-card">
-        <div class="manage-card-head">
+      <section class="manage-section">
+        <div class="manage-section-head">
           <h3>插件状态</h3>
-          <button data-manage-action="reload" class="manage-reload" type="button">重载插件</button>
+          <button data-manage-action="reload" class="manage-action manage-action-primary" type="button">重载插件</button>
         </div>
-        <div class="manage-tools">
-          <div class="manage-tool-row">
-            <span>导入插件包</span>
-            <button data-manage-action="import-jtp" class="manage-action" type="button">导入 .jtp</button>
-          </div>
-          <div class="manage-tool-row">
-            <span>打包插件目录</span>
-            <button data-manage-action="pack-jtp-dialog" class="manage-action" type="button">选择目录并打包 .jtp</button>
-          </div>
-          <div class="manage-tool-row">
-            <span>下载开发模板</span>
-            <button data-manage-action="download-template" class="manage-action" type="button">下载开发模板</button>
-          </div>
+        <div class="manage-tools manage-tools-inline">
+          <button data-manage-action="import-jtp" class="manage-action manage-action-secondary" type="button">导入插件包 .jtp</button>
+          <button data-manage-action="pack-jtp-dialog" class="manage-action manage-action-secondary" type="button">选择目录并打包 .jtp</button>
+          <button data-manage-action="download-template" class="manage-action manage-action-secondary" type="button">下载开发模板</button>
           <p class="manage-notice">${this.escapeHtml(this.manageNotice || "就绪")}</p>
         </div>
         <div class="manage-stats">
@@ -1213,9 +1352,9 @@ class SearchApp {
           <div class="stat"><span>DISABLED</span><strong>${disabled}</strong></div>
           <div class="stat"><span>FAULTED</span><strong>${faulted}</strong></div>
         </div>
-      </article>
-      <article class="manage-card">
-        <div class="manage-card-head">
+      </section>
+      <section class="manage-section manage-section-divider">
+        <div class="manage-section-head">
           <h3>已安装插件</h3>
         </div>
         <div id="manage-plugins" class="manage-plugin-list">
@@ -1246,7 +1385,7 @@ class SearchApp {
             })
             .join("")}
         </div>
-      </article>
+      </section>
     `;
     this.bindPluginManageActions();
   }
@@ -1370,27 +1509,31 @@ class SearchApp {
     }
     const hotkey = this.preferences?.hotkey || this.status?.hotkey || "Alt+Space";
     this.elements.manageContentBody.innerHTML = `
-      <article class="manage-card">
-        <div class="manage-card-head">
+      <section class="manage-section">
+        <div class="manage-section-head">
           <h3>快捷方式</h3>
         </div>
-        <div class="manage-tools">
-          <div class="manage-tool-row">
-            <span>全局唤起快捷键</span>
+        <div class="manage-shortcuts-grid">
+          <article class="manage-info-card">
+            <h4>全局唤起快捷键</h4>
+            <p>在任意页面下呼出 jtools 启动器。</p>
             <strong class="manage-strong">${this.escapeHtml(hotkey)}</strong>
-          </div>
-          <div class="manage-tool-row">
-            <span>托盘交互</span>
-            <p class="manage-inline">左键托盘图标可显示启动器；Esc 键将隐藏到托盘。</p>
-          </div>
-          <div class="manage-tool-row">
-            <span>测试动作</span>
-            <button data-manage-action="hide-to-tray" class="manage-action" type="button">立即隐藏到托盘</button>
-            <button data-manage-action="show-from-tray" class="manage-action" type="button">立即显示启动器</button>
+          </article>
+          <article class="manage-info-card">
+            <h4>托盘交互说明</h4>
+            <p>左键托盘图标可显示启动器；按 Esc 键可隐藏到托盘。</p>
+            <span class="manage-inline">建议开启“关闭窗口隐藏到托盘”。</span>
+          </article>
+        </div>
+        <div class="manage-operation-block">
+          <h4 class="manage-subtitle">测试动作</h4>
+          <div class="manage-op-row">
+            <button data-manage-action="hide-to-tray" class="manage-action manage-action-secondary" type="button">立即隐藏到托盘</button>
+            <button data-manage-action="show-from-tray" class="manage-action manage-action-primary" type="button">立即显示启动器</button>
           </div>
           <p class="manage-notice">${this.escapeHtml(this.manageNotice || "就绪")}</p>
         </div>
-      </article>
+      </section>
     `;
 
     this.elements.manageContentBody
@@ -1437,13 +1580,13 @@ class SearchApp {
     });
 
     this.elements.manageContentBody.innerHTML = `
-      <article class="manage-card">
-        <div class="manage-card-head">
+      <section class="manage-section">
+        <div class="manage-section-head">
           <h3>所有命令</h3>
           <span class="manage-count">${visible.length} 项</span>
         </div>
         <div class="manage-tools">
-          <div class="manage-tool-row">
+          <div class="manage-tool-row manage-tool-row-compact">
             <span>筛选</span>
             <input id="manage-command-filter" class="manage-input" type="text" value="${this.escapeHtml(this.manageCommandFilter)}" placeholder="输入标题、描述或关键词" />
           </div>
@@ -1463,7 +1606,7 @@ class SearchApp {
                           <span>${this.escapeHtml(command.commandId || command.id)} · ${this.escapeHtml(command.mode || "action")} · ${stateText}</span>
                         </div>
                         <button
-                          class="manage-action"
+                          class="manage-action manage-action-secondary"
                           type="button"
                           data-command-id="${this.escapeHtml(command.id)}"
                           data-command-run="true"
@@ -1475,7 +1618,7 @@ class SearchApp {
                   .join("")
           }
         </div>
-      </article>
+      </section>
     `;
 
     const filter = this.elements.manageContentBody.querySelector<HTMLInputElement>("#manage-command-filter");
@@ -1532,8 +1675,8 @@ class SearchApp {
     const pluginsDir = preferences?.pluginsDir ?? "";
 
     this.elements.manageContentBody.innerHTML = `
-      <article class="manage-card">
-        <div class="manage-card-head">
+      <section class="manage-section">
+        <div class="manage-section-head">
           <h3>设置</h3>
         </div>
         <div class="manage-tools">
@@ -1541,34 +1684,34 @@ class SearchApp {
             <span>最大搜索结果</span>
             <input id="setting-max-results" class="manage-input small" type="number" min="1" max="50" value="${maxResults}" />
           </div>
-          <div class="manage-tool-row">
+          <div class="manage-tool-row manage-tool-row-check">
             <span>最近使用参与搜索</span>
             <label class="manage-check"><input id="setting-include-recent" type="checkbox" ${includeRecent ? "checked" : ""} />启用</label>
           </div>
-          <div class="manage-tool-row">
+          <div class="manage-tool-row manage-tool-row-check">
             <span>Esc 键隐藏到托盘</span>
             <label class="manage-check"><input id="setting-hide-on-blur" type="checkbox" ${hideOnBlur ? "checked" : ""} />启用</label>
           </div>
-          <div class="manage-tool-row">
+          <div class="manage-tool-row manage-tool-row-check">
             <span>关闭窗口隐藏到托盘</span>
             <label class="manage-check"><input id="setting-close-to-tray" type="checkbox" ${closeToTray ? "checked" : ""} />启用</label>
           </div>
           <div class="manage-tool-row">
             <span>运行目录</span>
-            <p class="manage-inline">${this.escapeHtml(rootDir)}</p>
+            <code class="manage-path-code">${this.escapeHtml(rootDir)}</code>
           </div>
           <div class="manage-tool-row">
             <span>插件目录</span>
-            <p class="manage-inline">${this.escapeHtml(pluginsDir)}</p>
+            <code class="manage-path-code">${this.escapeHtml(pluginsDir)}</code>
           </div>
           <div class="manage-tool-row">
             <span>设置操作</span>
-            <button data-manage-action="save-settings" class="manage-action" type="button">保存设置</button>
-            <button data-manage-action="reload-settings" class="manage-action" type="button">刷新数据</button>
+            <button data-manage-action="save-settings" class="manage-action manage-action-primary" type="button">保存设置</button>
+            <button data-manage-action="reload-settings" class="manage-action manage-action-secondary" type="button">刷新数据</button>
           </div>
           <p class="manage-notice">${this.escapeHtml(this.manageNotice || "就绪")}</p>
         </div>
-      </article>
+      </section>
     `;
 
     this.elements.manageContentBody
@@ -1643,53 +1786,7 @@ class SearchApp {
     if (!this.elements) {
       return this.minWindowHeight;
     }
-
-    const collapsedHeight = this.measureCollapsedHeight();
-    if (this.activePlugin) {
-      return collapsedHeight + this.pluginViewportHeight + 8;
-    }
-
-    if (!this.hasSearched) {
-      return collapsedHeight;
-    }
-
-    const panel = this.elements.panel;
-    const statusRow = panel.querySelector<HTMLElement>(".status-row");
-    const statusHeight = statusRow?.offsetHeight ?? 22;
-
-    if (this.results.length === 0) {
-      return collapsedHeight + statusHeight + this.elements.empty.offsetHeight + 14;
-    }
-
-    const resultsHeight = Math.min(this.elements.results.scrollHeight, this.resultsViewportMaxHeight);
-    return collapsedHeight + statusHeight + resultsHeight + 14;
-  }
-
-  private measureCollapsedHeight() {
-    if (!this.elements) {
-      return this.minWindowHeight;
-    }
-
-    const { panel, pluginHost, shell } = this.elements;
-    const panelHidden = panel.classList.contains("hidden");
-    const hostHidden = pluginHost.classList.contains("hidden");
-
-    if (!panelHidden) {
-      panel.classList.add("hidden");
-    }
-    if (!hostHidden) {
-      pluginHost.classList.add("hidden");
-    }
-
-    const measured = shell.scrollHeight + 8;
-
-    if (!panelHidden) {
-      panel.classList.remove("hidden");
-    }
-    if (!hostHidden) {
-      pluginHost.classList.remove("hidden");
-    }
-    return Math.max(this.minWindowHeight, measured);
+    return Math.max(this.minWindowHeight, this.elements.shell.scrollHeight + 2);
   }
 
   private async setWindowSize(height: number, width: number) {
@@ -1719,5 +1816,254 @@ class SearchApp {
   }
 }
 
-const app = new SearchApp();
-void app.init();
+class PluginWindowApp {
+  private app = document.querySelector<HTMLDivElement>("#app");
+  private pluginId = "";
+  private pluginName = "插件";
+  private initialQuery = "";
+  private frame: HTMLIFrameElement | null = null;
+  private input: HTMLInputElement | null = null;
+  private empty: HTMLParagraphElement | null = null;
+  private pluginFrameReady = false;
+
+  constructor() {
+    const params = new URLSearchParams(window.location.search);
+    this.pluginId = (params.get("pluginId") || "").trim();
+    this.pluginName = (params.get("pluginName") || "插件").trim() || "插件";
+    this.initialQuery = (params.get("query") || "").trim();
+  }
+
+  async init() {
+    if (!this.app) {
+      throw new Error("App root not found");
+    }
+
+    this.mount();
+    if (!this.pluginId) {
+      this.showEmpty("未提供 pluginId，无法打开插件窗口。");
+      return;
+    }
+
+    try {
+      const resolved = await invoke<string | null>("plugin_display_name", {
+        payload: { pluginId: this.pluginId },
+      });
+      if (resolved?.trim()) {
+        this.pluginName = resolved.trim();
+      }
+    } catch (error) {
+      console.error("plugin_display_name failed", error);
+    }
+
+    this.updateTitle();
+    if (this.input) {
+      this.input.placeholder = `在 ${this.pluginName} 中输入关键词`;
+      this.input.value = this.initialQuery;
+    }
+    await this.loadPluginView();
+  }
+
+  private mount() {
+    if (!this.app) {
+      return;
+    }
+
+    this.app.innerHTML = `
+      <main class="plugin-window-shell">
+        <header class="plugin-window-header">
+          <h1 class="plugin-window-title" id="plugin-window-title">${this.escapeHtml(this.pluginName)}</h1>
+          <input
+            id="plugin-window-input"
+            class="plugin-window-input"
+            type="text"
+            autocomplete="off"
+            placeholder="输入关键词"
+          />
+        </header>
+        <section class="plugin-window-body">
+          <iframe
+            id="plugin-window-frame"
+            class="plugin-window-frame"
+            sandbox="allow-scripts allow-popups allow-forms allow-modals"
+          ></iframe>
+          <p class="plugin-window-empty hidden" id="plugin-window-empty">插件页面不可用</p>
+        </section>
+      </main>
+    `;
+
+    this.frame = this.app.querySelector<HTMLIFrameElement>("#plugin-window-frame");
+    this.input = this.app.querySelector<HTMLInputElement>("#plugin-window-input");
+    this.empty = this.app.querySelector<HTMLParagraphElement>("#plugin-window-empty");
+
+    this.frame?.addEventListener("load", () => {
+      this.pluginFrameReady = true;
+      this.pushQueryToPlugin(this.input?.value.trim() || this.initialQuery);
+    });
+
+    this.input?.addEventListener("input", () => {
+      this.pushQueryToPlugin(this.input?.value.trim() || "");
+    });
+
+    this.input?.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") {
+        return;
+      }
+      event.preventDefault();
+      this.submitPluginQuery();
+    });
+
+    window.addEventListener("message", this.onPluginMessage);
+    this.input?.focus();
+  }
+
+  private async loadPluginView() {
+    if (!this.pluginId || !this.frame) {
+      return;
+    }
+
+    this.pluginFrameReady = false;
+    let pluginHtml: string | null = null;
+    try {
+      pluginHtml = await invoke<string | null>("plugin_view_html", {
+        payload: { pluginId: this.pluginId },
+      });
+    } catch (error) {
+      console.error("plugin_view_html failed", error);
+    }
+
+    if (!pluginHtml || !pluginHtml.trim()) {
+      this.frame.srcdoc = "";
+      this.showEmpty("插件页面不可用或插件已被禁用。");
+      return;
+    }
+
+    if (this.empty) {
+      this.empty.classList.add("hidden");
+      this.empty.textContent = "插件页面不可用";
+    }
+    this.frame.srcdoc = pluginHtml;
+  }
+
+  private onPluginMessage = async (event: MessageEvent<unknown>) => {
+    if (!this.frame || event.source !== this.frame.contentWindow) {
+      return;
+    }
+
+    const data = event.data as PluginMessage | null;
+    if (!data || typeof data !== "object" || !("type" in data)) {
+      return;
+    }
+
+    if (data.type === "jtools-plugin-ready") {
+      this.pluginFrameReady = true;
+      this.pushQueryToPlugin(this.input?.value.trim() || this.initialQuery);
+      return;
+    }
+
+    if (data.type === "jtools-plugin-action") {
+      try {
+        if (data.action === "open_url") {
+          await invoke("capability_open_url", { url: data.url });
+        } else if (data.action === "copy_text") {
+          await invoke("capability_copy_text", { text: data.text });
+        }
+      } catch (error) {
+        console.error("plugin action failed", error);
+      }
+      return;
+    }
+
+    if (data.type === "jtools-plugin-capability") {
+      const requestId = typeof data.requestId === "string" ? data.requestId : "";
+      try {
+        const result = await invoke<PluginCapabilityResponse>("plugin_capability_call", {
+          payload: {
+            pluginId: this.pluginId,
+            capability: data.capability,
+            requestId,
+            args: data.args ?? {},
+          },
+        });
+        this.frame.contentWindow?.postMessage(
+          {
+            type: "jtools-host-capability-result",
+            requestId: result.requestId ?? requestId,
+            ok: result.ok,
+            message: result.message,
+            data: result.data ?? null,
+          },
+          "*",
+        );
+      } catch (error) {
+        this.frame.contentWindow?.postMessage(
+          {
+            type: "jtools-host-capability-result",
+            requestId,
+            ok: false,
+            message: String(error),
+          },
+          "*",
+        );
+      }
+    }
+  };
+
+  private pushQueryToPlugin(query: string) {
+    if (!this.frame || !this.pluginFrameReady) {
+      return;
+    }
+    this.frame.contentWindow?.postMessage(
+      {
+        type: "jtools-host-query",
+        query,
+      },
+      "*",
+    );
+  }
+
+  private submitPluginQuery() {
+    if (!this.frame || !this.pluginFrameReady) {
+      return;
+    }
+    this.frame.contentWindow?.postMessage(
+      {
+        type: "jtools-host-submit",
+        query: this.input?.value.trim() || "",
+      },
+      "*",
+    );
+  }
+
+  private updateTitle() {
+    document.title = `${this.pluginName} · jtools`;
+    const title = this.app?.querySelector<HTMLElement>("#plugin-window-title");
+    if (title) {
+      title.textContent = this.pluginName;
+    }
+  }
+
+  private showEmpty(message: string) {
+    if (this.empty) {
+      this.empty.textContent = message;
+      this.empty.classList.remove("hidden");
+    }
+  }
+
+  private escapeHtml(value: string) {
+    return value
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
+  }
+}
+
+const mode = new URLSearchParams(window.location.search).get("mode");
+if (mode === "plugin") {
+  const app = new PluginWindowApp();
+  void app.init();
+} else {
+  const app = new SearchApp();
+  void app.init();
+}

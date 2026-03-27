@@ -5,6 +5,7 @@
   "description": "jtools 插件开发模板（Vite + Vue3 + TypeScript + 全能力示例）",
   "author": "your-name",
   "entry": "index.html",
+  "icon": "icon.png",
   "permissions": [
     "system.open_url",
     "clipboard.write",

@@ -26,16 +26,6 @@ impl BuiltinCommandSource {
                 score: 0.0,
                 action: SearchAction::HostCommand("host.open_settings".into()),
             },
-            SearchItem {
-                source_type: "host_command".into(),
-                source_id: "host.reload_plugins".into(),
-                plugin_id: None,
-                title: "重载插件".into(),
-                subtitle: "重新扫描插件目录并刷新索引".into(),
-                keywords: vec!["reload".into(), "插件".into(), "plugin".into()],
-                score: 0.0,
-                action: SearchAction::HostCommand("host.reload_plugins".into()),
-            },
         ]
     }
 }

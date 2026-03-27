@@ -1,3 +1,3 @@
 window.jtoolsPlugin = {
-  id: "app-launcher",
+  id: "encoding-tools",
 };

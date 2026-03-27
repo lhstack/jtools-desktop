@@ -1,0 +1,50 @@
+{
+  "id": "encoding-tools",
+  "name": "Encoding Tools",
+  "version": "0.1.0",
+  "description": "MD5/SHA/Base64/HEX/URL/Unicode 编解码工具",
+  "author": "jtools",
+  "entry": "index.html",
+  "permissions": [
+    "clipboard.write"
+  ],
+  "commands": [
+    {
+      "id": "encoding.convert",
+      "title": "编码转换工具",
+      "mode": "search",
+      "keywords": [
+        "encoding",
+        "编码",
+        "转换",
+        "hash",
+        "md5",
+        "sha1",
+        "sha256",
+        "sha512",
+        "base64",
+        "hex",
+        "url",
+        "unicode"
+      ],
+      "description": "输入文本后进行编码、解码与哈希转换"
+    }
+  ],
+  "keywords": [
+    "encoding",
+    "hash",
+    "base64",
+    "hex",
+    "md5",
+    "sha1",
+    "sha256",
+    "sha512",
+    "url",
+    "unicode"
+  ],
+  "platforms": [
+    "windows"
+  ],
+  "min_app_version": "0.1.0",
+  "icon": "icon.png"
+}

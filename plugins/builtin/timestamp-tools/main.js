@@ -1,3 +1,3 @@
 window.jtoolsPlugin = {
-  id: "web-search",
+  id: "timestamp-tools",
 };

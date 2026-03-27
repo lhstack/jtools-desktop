@@ -624,6 +624,42 @@ async fn plugin_display_name(
 }
 
 #[tauri::command]
+async fn plugin_window_icon_bytes(
+    state: State<'_, AppState>,
+    payload: PluginRefRequest,
+) -> Result<Option<Vec<u8>>, String> {
+    let icon_path = {
+        let platform = state.platform.lock().await;
+        let plugin = platform
+            .plugin_registry
+            .get_enabled_plugin(&payload.plugin_id)
+            .or_else(|| platform.plugin_registry.get_plugin(&payload.plugin_id));
+        let Some(plugin) = plugin else {
+            return Ok(None);
+        };
+        let icon_rel = plugin
+            .manifest
+            .icon
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty());
+        let Some(icon_rel) = icon_rel else {
+            return Ok(None);
+        };
+        resolve_plugin_icon_path(&plugin.metadata.install_path, icon_rel)
+    };
+
+    let Some(path) = icon_path else {
+        return Ok(None);
+    };
+
+    let bytes = tokio::fs::read(path)
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(Some(bytes))
+}
+
+#[tauri::command]
 async fn plugin_view_html(
     state: State<'_, AppState>,
     payload: PluginRefRequest,
@@ -1220,6 +1256,32 @@ fn resolve_plugin_file_path(root: &Path, relative: &str) -> Result<PathBuf, Stri
     Ok(root.join(rel_path))
 }
 
+fn resolve_plugin_icon_path(plugin_root: &Path, relative: &str) -> Option<PathBuf> {
+    let value = relative.trim();
+    if value.is_empty() {
+        return None;
+    }
+
+    let rel_path = Path::new(value);
+    if rel_path.is_absolute() {
+        return None;
+    }
+
+    for component in rel_path.components() {
+        match component {
+            Component::Normal(_) | Component::CurDir => {}
+            _ => return None,
+        }
+    }
+
+    let target = plugin_root.join(rel_path);
+    if target.is_file() {
+        Some(target)
+    } else {
+        None
+    }
+}
+
 fn resolve_any_path(path: &str) -> Result<PathBuf, String> {
     let value = path.trim();
     if value.is_empty() {
@@ -1537,6 +1599,10 @@ fn write_plugin_template(template_dir: &Path) -> anyhow::Result<()> {
         }
         std::fs::write(target, content)?;
     }
+    std::fs::write(
+        template_dir.join("icon.png"),
+        include_bytes!("../template/icon.png"),
+    )?;
     Ok(())
 }
 
@@ -1603,6 +1669,7 @@ fn main() {
             download_plugin_template_dialog,
             search_in_plugin,
             plugin_display_name,
+            plugin_window_icon_bytes,
             plugin_view_html,
             capability_open_url,
             capability_copy_text,

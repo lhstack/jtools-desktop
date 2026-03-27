@@ -1,0 +1,40 @@
+{
+  "id": "timestamp-tools",
+  "name": "Timestamp Tools",
+  "version": "0.1.0",
+  "description": "Unix 时间戳（秒/毫秒）与时间字符串互转工具",
+  "author": "jtools",
+  "entry": "index.html",
+  "permissions": [
+    "clipboard.write"
+  ],
+  "commands": [
+    {
+      "id": "timestamp.convert",
+      "title": "时间戳转换",
+      "mode": "search",
+      "keywords": [
+        "timestamp",
+        "ts",
+        "时间戳",
+        "unix",
+        "时间转换",
+        "now"
+      ],
+      "description": "输入 ts/timestamp + 内容进行互转并复制结果"
+    }
+  ],
+  "keywords": [
+    "timestamp",
+    "ts",
+    "unix",
+    "time",
+    "now",
+    "日期转换"
+  ],
+  "platforms": [
+    "windows"
+  ],
+  "min_app_version": "0.1.0",
+  "icon": "icon.png"
+}
