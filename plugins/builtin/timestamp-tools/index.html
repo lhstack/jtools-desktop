@@ -130,6 +130,35 @@
         overflow: hidden;
         text-overflow: ellipsis;
       }
+      .result-table {
+        margin-top: 8px;
+        display: grid;
+        gap: 6px;
+      }
+      .result-row {
+        display: grid;
+        grid-template-columns: 132px 1fr auto;
+        align-items: center;
+        gap: 8px;
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: #ffffff;
+        padding: 6px 8px;
+      }
+      .result-row-label {
+        color: var(--muted);
+        font-size: 12px;
+        white-space: nowrap;
+      }
+      .result-row-value {
+        margin: 0;
+        color: #1c2a4c;
+        font-size: 12px;
+        font-family: "Cascadia Mono", "Consolas", monospace;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
     </style>
   </head>
   <body>
@@ -164,7 +193,7 @@
           </div>
         </div>
       </section>
-      <p class="hint">启动器中可直接输入：<code>ts 1700000000</code>、<code>timestamp 2025-01-01 12:00:00</code>、<code>ts now</code></p>
+      <p class="hint">启动器中可直接输入时间、时间戳或关键词（如 <code>2025-01-01 12:00:00</code>、<code>1700000000</code>、<code>时间戳</code>、<code>now</code>），无需命令前缀。</p>
       <section id="cards" class="list"></section>
     </main>
     <script>
@@ -372,22 +401,30 @@
         }
 
         const values = buildValues(input);
-        cardsEl.innerHTML = rows
-          .map((row) => {
-            const value = values[row.id];
-            const canCopy = value !== EMPTY_VALUE;
-            return `
-            <article class="card">
-              <div class="card-head">
-                <strong class="card-title">${htmlEscape(row.label)}</strong>
-                <button class="copy-btn" type="button" data-copy-value="${htmlEscape(value)}" ${canCopy ? "" : "disabled"}>复制</button>
-              </div>
-              <div class="label">结果</div>
-              <div class="value" title="${htmlEscape(value)}">${htmlEscape(value)}</div>
-            </article>
-          `;
-          })
-          .join("");
+        cardsEl.innerHTML = `
+          <article class="card">
+            <div class="card-head">
+              <strong class="card-title">转换结果</strong>
+            </div>
+            <div class="result-table">
+              ${rows
+                .map((row) => {
+                  const value = values[row.id];
+                  const canCopy = value !== EMPTY_VALUE;
+                  return `
+                    <div class="result-row">
+                      <span class="result-row-label">${htmlEscape(row.label)}</span>
+                      <code class="result-row-value" title="${htmlEscape(value)}">${htmlEscape(value)}</code>
+                      <button class="copy-btn" type="button" data-copy-value="${htmlEscape(value)}" ${
+                        canCopy ? "" : "disabled"
+                      }>复制</button>
+                    </div>
+                  `;
+                })
+                .join("")}
+            </div>
+          </article>
+        `;
 
         cardsEl.querySelectorAll(".copy-btn[data-copy-value]").forEach((button) => {
           button.addEventListener("click", () => {
@@ -406,31 +443,113 @@
         reportPluginHeight();
       }
 
+      function looksTimeIntent(query) {
+        const value = String(query || "").trim().toLowerCase();
+        if (!value) {
+          return false;
+        }
+        return (
+          value.includes("时间") ||
+          value.includes("时间戳") ||
+          value.includes("timestamp") ||
+          value === "ts" ||
+          value === "now" ||
+          value.includes("date") ||
+          value.includes("time")
+        );
+      }
+
+      function resolveTimePayload(query) {
+        const value = String(query || "").trim();
+        if (!value) {
+          return "";
+        }
+
+        const commandMatch = value.match(/^(\S+)\s+([\s\S]+)$/);
+        if (commandMatch) {
+          const command = commandMatch[1].toLowerCase();
+          if (command === "ts" || command === "timestamp") {
+            return commandMatch[2].trim();
+          }
+        }
+        return value;
+      }
+
       function toHookItems(query) {
-        const match = String(query || "")
-          .trim()
-          .match(/^(\S+)\s+([\s\S]+)$/);
-        if (!match) {
+        const raw = String(query || "").trim();
+        if (!raw) {
           return [];
         }
-        const cmd = match[1].toLowerCase();
-        if (cmd !== "ts" && cmd !== "timestamp") {
-          return [];
+
+        let payload = resolveTimePayload(raw);
+        if (!payload && looksTimeIntent(raw)) {
+          payload = "now";
         }
-        const payload = match[2].trim();
         if (!payload) {
           return [];
         }
-        const values = buildValues(payload);
+
+        let values = buildValues(payload);
         if (values.local === EMPTY_VALUE) {
-          return [];
+          if (!looksTimeIntent(raw)) {
+            return [];
+          }
+          values = buildValues("now");
         }
+
         return [
           { title: values.local, subtitle: "本地时间 · 点击复制", score: 99, action: { copy_text: values.local } },
           { title: values.utc, subtitle: "UTC 时间 · 点击复制", score: 97, action: { copy_text: values.utc } },
           { title: values.seconds, subtitle: "Unix 秒时间戳 · 点击复制", score: 96, action: { copy_text: values.seconds } },
           { title: values.millis, subtitle: "Unix 毫秒时间戳 · 点击复制", score: 95, action: { copy_text: values.millis } },
         ];
+      }
+
+      function toPluginHookItems(query) {
+        const raw = String(query || "").trim();
+        if (!raw) {
+          return [];
+        }
+
+        const payload = resolveTimePayload(raw);
+        if (payload) {
+          const values = buildValues(payload);
+          if (values.local !== EMPTY_VALUE) {
+            return [
+              {
+                title: "打开 Timestamp Tools",
+                subtitle: "时间戳转换插件 · 双击进入",
+                score: 90,
+                action: {
+                  plugin_command: {
+                    plugin_id: PLUGIN_ID,
+                    command_id: "timestamp.convert",
+                    mode: "search",
+                  },
+                },
+              },
+            ];
+          }
+        }
+
+        if (looksTimeIntent(raw)) {
+          return [
+            {
+              title: "打开 Timestamp Tools",
+              subtitle: "时间戳转换插件 · 双击进入",
+              score: 88,
+              action: {
+                plugin_command: {
+                  plugin_id: PLUGIN_ID,
+                  command_id: "timestamp.convert",
+                  mode: "search",
+                },
+              },
+            },
+          ];
+        }
+
+        return [];
       }
 
       function updateInput(value) {
@@ -459,7 +578,7 @@
               type: "jtools-hook-results",
               pluginId: PLUGIN_ID,
               token: Number(data.token || 0),
-              items: toHookItems(data.query || ""),
+              items: toPluginHookItems(data.query || ""),
             },
             "*",
           );

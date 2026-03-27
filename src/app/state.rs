@@ -99,6 +99,12 @@ impl DesktopPlatform {
             .map(|plugin| plugin.metadata.install_path.join(plugin.manifest.entry))
     }
 
+    pub fn plugin_show_search_input(&self, plugin_id: &str) -> Option<bool> {
+        self.plugin_registry
+            .get_enabled_plugin(plugin_id)
+            .map(|plugin| plugin.manifest.ui.show_search_input)
+    }
+
     pub fn search_in_plugin(&self, plugin_id: &str, query: impl Into<String>) -> Vec<SearchItem> {
         let query = query.into();
         let query = query.trim().to_lowercase();

@@ -187,6 +187,12 @@ struct PluginCapabilityResponse {
     data: Option<Value>,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PluginViewOptions {
+    show_search_input: bool,
+}
+
 #[tauri::command]
 async fn get_app_status(state: State<'_, AppState>) -> Result<AppStatus, String> {
     let platform = state.platform.lock().await;
@@ -621,6 +627,17 @@ async fn plugin_display_name(
 ) -> Result<Option<String>, String> {
     let platform = state.platform.lock().await;
     Ok(platform.plugin_display_name(&payload.plugin_id))
+}
+
+#[tauri::command]
+async fn plugin_view_options(
+    state: State<'_, AppState>,
+    payload: PluginRefRequest,
+) -> Result<Option<PluginViewOptions>, String> {
+    let platform = state.platform.lock().await;
+    Ok(platform
+        .plugin_show_search_input(&payload.plugin_id)
+        .map(|show_search_input| PluginViewOptions { show_search_input }))
 }
 
 #[tauri::command]
@@ -1669,6 +1686,7 @@ fn main() {
             download_plugin_template_dialog,
             search_in_plugin,
             plugin_display_name,
+            plugin_view_options,
             plugin_window_icon_bytes,
             plugin_view_html,
             capability_open_url,

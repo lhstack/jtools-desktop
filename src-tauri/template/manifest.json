@@ -6,6 +6,9 @@
   "author": "your-name",
   "entry": "index.html",
   "icon": "icon.png",
+  "ui": {
+    "showSearchInput": true
+  },
   "permissions": [
     "system.open_url",
     "clipboard.write",

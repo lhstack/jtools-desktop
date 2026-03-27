@@ -110,6 +110,7 @@ assets/...
 1. `manifest.entry` 必须是 `index.html`
 2. `App.vue` 里的 `PLUGIN_ID` 必须与 `manifest.id` 一致
 3. 能力调用前必须在清单声明对应 `permissions`
+4. 可通过 `manifest.ui.showSearchInput` 控制宿主搜索框显示（默认 `true`）
 
 ---
 

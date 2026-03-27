@@ -19,7 +19,8 @@
         "时间戳",
         "unix",
         "时间转换",
-        "now"
+        "now",
+        "时间"
       ],
       "description": "输入 ts/timestamp + 内容进行互转并复制结果"
     }
@@ -30,7 +31,9 @@
     "unix",
     "time",
     "now",
-    "日期转换"
+    "日期转换",
+    "时间",
+    "时间戳"
   ],
   "platforms": [
     "windows"

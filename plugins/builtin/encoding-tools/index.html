@@ -109,8 +109,7 @@
   <body>
     <main class="panel">
       <p class="hint">
-        启动器中可直接输入：<code>md5 内容</code>、<code>sha256 内容</code>、<code>base64 内容</code>、<code>hex 内容</code>、
-        <code>url 内容</code>、<code>unicode 内容</code>（以及对应反解关键词）。
+        启动器中可直接输入任意内容，自动识别可处理的编码/解码能力并显示可复制结果；也支持 <code>md5 内容</code>、<code>base64 内容</code> 等显式前缀。
       </p>
       <section id="cards" class="list"></section>
     </main>
@@ -456,7 +455,14 @@
           return;
         }
 
-        cardsEl.innerHTML = rows
+        const visibleRows = rows.filter((row) => {
+          if (!input) {
+            return true;
+          }
+          return row.output !== INVALID_VALUE;
+        });
+
+        cardsEl.innerHTML = visibleRows
           .map((row) => {
             const canCopy = row.output !== EMPTY_VALUE && row.output !== INVALID_VALUE;
             return `
@@ -498,27 +504,100 @@
         reportPluginHeight();
       }
 
+      function looksBase64(value) {
+        const text = String(value || "").trim();
+        if (!text || text.length < 4 || text.length % 4 !== 0) {
+          return false;
+        }
+        return /^[A-Za-z0-9+/]+={0,2}$/.test(text);
+      }
+
+      function looksHex(value) {
+        const text = String(value || "").trim();
+        if (!text || text.length < 2 || text.length % 2 !== 0) {
+          return false;
+        }
+        return /^[0-9a-fA-F]+$/.test(text);
+      }
+
+      function looksUnicodeEscaped(value) {
+        const text = String(value || "").trim();
+        return /^((\\u[0-9a-fA-F]{4})+)$/.test(text);
+      }
+
+      function looksUrlEncoded(value) {
+        const text = String(value || "");
+        return /%[0-9a-fA-F]{2}/.test(text);
+      }
+
       function parseHookQuery(query) {
-        const match = String(query || "")
-          .trim()
-          .match(/^(\S+)\s+([\s\S]+)$/);
-        if (!match) {
+        const raw = String(query || "").trim();
+        if (!raw) {
           return null;
         }
-        const command = match[1].toLowerCase();
-        const payload = match[2].trim();
+
+        const commandMatch = raw.match(/^(\S+)\s+([\s\S]+)$/);
+        if (!commandMatch) {
+          return {
+            payload: raw,
+            explicitOpId: null,
+            explicit: false,
+          };
+        }
+
+        const command = commandMatch[1].toLowerCase();
+        const payload = commandMatch[2].trim();
         if (!payload) {
           return null;
         }
-        const opId = SEARCH_ALIAS.get(command);
+        const opId = SEARCH_ALIAS.get(command) || null;
         if (!opId) {
-          return null;
+          return {
+            payload: raw,
+            explicitOpId: null,
+            explicit: false,
+          };
         }
-        const op = OPERATIONS.find((item) => item.id === opId);
-        if (!op) {
-          return null;
+        return {
+          payload,
+          explicitOpId: opId,
+          explicit: true,
+        };
+      }
+
+      function shouldKeepDecodeItem(operationId, payload, output) {
+        if (output === EMPTY_VALUE || output === INVALID_VALUE) {
+          return false;
         }
-        return { op, payload };
+        if (operationId === "base64-decode") {
+          return looksBase64(payload);
+        }
+        if (operationId === "hex-decode") {
+          return looksHex(payload);
+        }
+        if (operationId === "unicode-decode") {
+          return looksUnicodeEscaped(payload);
+        }
+        if (operationId === "url-decode") {
+          return looksUrlEncoded(payload) && output !== payload;
+        }
+        return false;
+      }
+
+      function scoreOperation(operationId, payload, explicit, explicitOpId) {
+        if (explicit && explicitOpId === operationId) {
+          return 100;
+        }
+        if (operationId.endsWith("decode")) {
+          return 97;
+        }
+        if (operationId.startsWith("hash-")) {
+          return 86;
+        }
+        if (operationId.endsWith("encode")) {
+          return 90;
+        }
+        return 80;
       }
 
       async function buildHookItems(query) {
@@ -526,13 +605,55 @@
         if (!parsed) {
           return [];
         }
-        const output = await computeValue(parsed.op.mode, parsed.payload);
+
+        const payload = parsed.payload;
+        const rows = await Promise.all(
+          OPERATIONS.map(async (operation) => ({
+            ...operation,
+            output: await computeValue(operation.mode, payload),
+          })),
+        );
+
+        let candidates = rows.filter((row) => row.output !== EMPTY_VALUE && row.output !== INVALID_VALUE);
+        if (parsed.explicit && parsed.explicitOpId) {
+          candidates = candidates.filter((row) => row.id === parsed.explicitOpId);
+        } else {
+          candidates = candidates.filter((row) => {
+            if (row.id.endsWith("decode")) {
+              return shouldKeepDecodeItem(row.id, payload, row.output);
+            }
+            return true;
+          });
+        }
+
+        return candidates
+          .map((row) => ({
+            title: row.output,
+            subtitle: `${row.label} · 点击复制`,
+            score: scoreOperation(row.id, payload, parsed.explicit, parsed.explicitOpId),
+            action: { copy_text: row.output },
+          }))
+          .sort((left, right) => right.score - left.score)
+          .slice(0, 10);
+      }
+
+      function toPluginHookItems(query) {
+        const parsed = parseHookQuery(query);
+        if (!parsed || !String(parsed.payload || "").trim()) {
+          return [];
+        }
         return [
           {
-            title: output,
-            subtitle: `${parsed.op.label} · 点击复制`,
-            score: 99,
-            action: { copy_text: output },
+            title: "打开 Encoding Tools",
+            subtitle: "编码转换插件 · 双击进入",
+            score: 84,
+            action: {
+              plugin_command: {
+                plugin_id: PLUGIN_ID,
+                command_id: "encoding.convert",
+                mode: "search",
+              },
+            },
           },
         ];
       }
@@ -558,14 +679,12 @@
           return;
         }
         if (data.type === "jtools-hook-search") {
-          const token = Number(data.token || 0);
-          const items = await buildHookItems(String(data.query || ""));
           window.parent.postMessage(
             {
               type: "jtools-hook-results",
               pluginId: PLUGIN_ID,
-              token,
-              items,
+              token: Number(data.token || 0),
+              items: toPluginHookItems(String(data.query || "")),
             },
             "*",
           );

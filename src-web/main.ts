@@ -63,9 +63,14 @@ type ManageCommandItem = {
   action: SearchAction;
 };
 
+type PluginViewOptions = {
+  showSearchInput: boolean;
+};
+
 type ActivePlugin = {
   id: string;
   name: string;
+  showSearchInput: boolean;
 };
 
 type ManageSection = "plugins" | "shortcuts" | "commands" | "settings";
@@ -107,6 +112,7 @@ type Elements = {
   manageCloseButton: HTMLButtonElement;
   manageContentBody: HTMLDivElement;
   hookHost: HTMLElement;
+  searchBox: HTMLElement;
   input: HTMLInputElement;
   reloadButton: HTMLButtonElement;
   panel: HTMLElement;
@@ -121,6 +127,7 @@ type Elements = {
   pluginHost: HTMLElement;
   pluginFrame: HTMLIFrameElement;
   pluginHostEmpty: HTMLParagraphElement;
+  toast: HTMLDivElement;
 };
 
 class SearchApp {
@@ -160,6 +167,7 @@ class SearchApp {
   private hookBuckets = new Map<number, SearchItem[]>();
   private hookResolvers = new Map<number, (items: SearchItem[]) => void>();
   private manageVueApp: VueApp | null = null;
+  private toastTimer: number | null = null;
 
   async init() {
     if (!this.app) {
@@ -202,7 +210,7 @@ class SearchApp {
               </div>
             </section>
 
-            <section class="search-box">
+            <section class="search-box" id="search-box">
               <span class="search-icon">⌕</span>
               <input
                 id="search-input"
@@ -237,6 +245,7 @@ class SearchApp {
           </section>
 
           <section class="hook-host hidden" id="hook-host"></section>
+          <div class="global-toast hidden" id="global-toast"></div>
         </section>
       </main>
     `;
@@ -250,6 +259,7 @@ class SearchApp {
     const manageCloseButton = this.queryElement<HTMLButtonElement>("#manage-close-button");
     const manageContentBody = this.queryElement<HTMLDivElement>("#manage-content-body");
     const hookHost = this.queryElement<HTMLElement>("#hook-host");
+    const searchBox = this.queryElement<HTMLElement>("#search-box");
     const input = this.queryElement<HTMLInputElement>("#search-input");
     const reloadButton = this.queryElement<HTMLButtonElement>("#reload-button");
     const panel = this.queryElement<HTMLElement>("#results-panel");
@@ -264,6 +274,7 @@ class SearchApp {
     const pluginHost = this.queryElement<HTMLElement>("#plugin-host");
     const pluginFrame = this.queryElement<HTMLIFrameElement>("#plugin-frame");
     const pluginHostEmpty = this.queryElement<HTMLParagraphElement>("#plugin-host-empty");
+    const toast = this.queryElement<HTMLDivElement>("#global-toast");
 
     this.elements = {
       shell,
@@ -273,6 +284,7 @@ class SearchApp {
       manageCloseButton,
       manageContentBody,
       hookHost,
+      searchBox,
       input,
       reloadButton,
       panel,
@@ -287,6 +299,7 @@ class SearchApp {
       pluginHost,
       pluginFrame,
       pluginHostEmpty,
+      toast,
     };
 
     shell.addEventListener("mousedown", (event) => {
@@ -614,6 +627,7 @@ class SearchApp {
           await invoke("capability_open_url", { url: data.url });
         } else if (data.action === "copy_text") {
           await invoke("capability_copy_text", { text: data.text });
+          this.showToast("已复制到剪贴板");
         }
       } catch (error) {
         console.error("plugin action failed", error);
@@ -991,8 +1005,10 @@ class SearchApp {
     if (!pluginId) {
       return;
     }
+    const seedQuery = this.query.trim();
 
     let pluginName: string | null = null;
+    let pluginOptions: PluginViewOptions | null = null;
     try {
       pluginName = await invoke<string | null>("plugin_display_name", {
         payload: { pluginId },
@@ -1000,28 +1016,39 @@ class SearchApp {
     } catch (error) {
       console.error("plugin_display_name failed", error);
     }
+    try {
+      pluginOptions = await invoke<PluginViewOptions | null>("plugin_view_options", {
+        payload: { pluginId },
+      });
+    } catch (error) {
+      console.error("plugin_view_options failed", error);
+    }
     const fallbackName = this.fallbackPluginName(item);
+    const showSearchInput = pluginOptions?.showSearchInput ?? true;
 
     this.activePlugin = {
       id: pluginId,
       name: (pluginName?.trim() || fallbackName).trim(),
+      showSearchInput,
     };
-    this.query = "";
-    this.pendingPluginQuery = "";
+    this.query = seedQuery;
+    this.pendingPluginQuery = seedQuery;
     this.hasSearched = false;
     this.results = [];
     this.selectedIndex = 0;
     this.searchToken += 1;
 
     if (this.elements) {
-      this.elements.input.value = "";
-      this.elements.input.focus();
+      this.elements.input.value = seedQuery;
       this.elements.pluginFrame.style.height = `${this.pluginViewportMinHeight}px`;
+      if (showSearchInput) {
+        this.elements.input.focus();
+      }
     }
 
     await this.loadPluginView();
     await this.render();
-    this.pushQueryToPlugin("");
+    this.pushQueryToPlugin(this.pendingPluginQuery);
   }
 
   private async loadPluginView() {
@@ -1121,7 +1148,7 @@ class SearchApp {
     const seen = new Set<string>();
 
     for (const item of items) {
-      const key = `${this.actionKey(item.action)}|${item.title.trim()}|${item.subtitle.trim()}`;
+      const key = this.actionKey(item.action);
       if (seen.has(key)) {
         continue;
       }
@@ -1167,6 +1194,7 @@ class SearchApp {
       await invoke("capability_open_url", { url: item.action.open_url });
     } else if ("copy_text" in item.action) {
       await invoke("capability_copy_text", { text: item.action.copy_text });
+      this.showToast("已复制到剪贴板");
     } else {
       await invoke<string>("execute_item", { item });
     }
@@ -1215,9 +1243,13 @@ class SearchApp {
     }
 
     if (this.activePlugin) {
+      const showSearchInput = this.activePlugin.showSearchInput;
       this.elements.pluginContext.classList.remove("hidden");
       this.elements.pluginName.textContent = this.activePlugin.name;
-      this.elements.input.placeholder = `在 ${this.activePlugin.name} 中输入关键词`;
+      this.elements.searchBox.classList.toggle("hidden", !showSearchInput);
+      if (showSearchInput) {
+        this.elements.input.placeholder = `在 ${this.activePlugin.name} 中输入关键词`;
+      }
       this.elements.pluginHost.classList.remove("hidden");
       this.elements.panel.classList.add("hidden");
       this.elements.results.innerHTML = "";
@@ -1229,6 +1261,7 @@ class SearchApp {
 
     this.elements.pluginContext.classList.add("hidden");
     this.elements.pluginName.textContent = "";
+    this.elements.searchBox.classList.remove("hidden");
     this.elements.input.placeholder = "搜索插件、命令和动作";
     this.elements.pluginHost.classList.add("hidden");
 
@@ -1814,6 +1847,24 @@ class SearchApp {
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#39;");
   }
+
+  private showToast(message: string, durationMs = 1400) {
+    if (!this.elements) {
+      return;
+    }
+    this.elements.toast.textContent = message;
+    this.elements.toast.classList.remove("hidden");
+    if (this.toastTimer !== null) {
+      window.clearTimeout(this.toastTimer);
+    }
+    this.toastTimer = window.setTimeout(() => {
+      if (!this.elements) {
+        return;
+      }
+      this.elements.toast.classList.add("hidden");
+      this.toastTimer = null;
+    }, durationMs);
+  }
 }
 
 class PluginWindowApp {
@@ -1821,6 +1872,8 @@ class PluginWindowApp {
   private pluginId = "";
   private pluginName = "插件";
   private initialQuery = "";
+  private showSearchInput = true;
+  private header: HTMLElement | null = null;
   private frame: HTMLIFrameElement | null = null;
   private input: HTMLInputElement | null = null;
   private empty: HTMLParagraphElement | null = null;
@@ -1854,12 +1907,21 @@ class PluginWindowApp {
     } catch (error) {
       console.error("plugin_display_name failed", error);
     }
+    try {
+      const options = await invoke<PluginViewOptions | null>("plugin_view_options", {
+        payload: { pluginId: this.pluginId },
+      });
+      this.showSearchInput = options?.showSearchInput ?? true;
+    } catch (error) {
+      console.error("plugin_view_options failed", error);
+    }
 
     this.updateTitle();
     if (this.input) {
       this.input.placeholder = `在 ${this.pluginName} 中输入关键词`;
       this.input.value = this.initialQuery;
     }
+    this.applySearchInputVisibility();
     await this.loadPluginView();
   }
 
@@ -1870,8 +1932,8 @@ class PluginWindowApp {
 
     this.app.innerHTML = `
       <main class="plugin-window-shell">
-        <header class="plugin-window-header">
-          <h1 class="plugin-window-title" id="plugin-window-title">${this.escapeHtml(this.pluginName)}</h1>
+        <header class="plugin-window-header" id="plugin-window-header">
+<!--          <h1 class="plugin-window-title" id="plugin-window-title">${this.escapeHtml(this.pluginName)}</h1>-->
           <input
             id="plugin-window-input"
             class="plugin-window-input"
@@ -1891,6 +1953,7 @@ class PluginWindowApp {
       </main>
     `;
 
+    this.header = this.app.querySelector<HTMLElement>("#plugin-window-header");
     this.frame = this.app.querySelector<HTMLIFrameElement>("#plugin-window-frame");
     this.input = this.app.querySelector<HTMLInputElement>("#plugin-window-input");
     this.empty = this.app.querySelector<HTMLParagraphElement>("#plugin-window-empty");
@@ -2009,7 +2072,7 @@ class PluginWindowApp {
   };
 
   private pushQueryToPlugin(query: string) {
-    if (!this.frame || !this.pluginFrameReady) {
+    if (!this.frame || !this.pluginFrameReady || !this.showSearchInput) {
       return;
     }
     this.frame.contentWindow?.postMessage(
@@ -2022,7 +2085,7 @@ class PluginWindowApp {
   }
 
   private submitPluginQuery() {
-    if (!this.frame || !this.pluginFrameReady) {
+    if (!this.frame || !this.pluginFrameReady || !this.showSearchInput) {
       return;
     }
     this.frame.contentWindow?.postMessage(
@@ -2040,6 +2103,21 @@ class PluginWindowApp {
     if (title) {
       title.textContent = this.pluginName;
     }
+  }
+
+  private applySearchInputVisibility() {
+    this.header?.classList.toggle("hidden", !this.showSearchInput);
+    if (!this.input) {
+      return;
+    }
+    this.input.classList.toggle("hidden", !this.showSearchInput);
+    if (!this.showSearchInput) {
+      this.input.value = "";
+      this.input.blur();
+      this.initialQuery = "";
+      return;
+    }
+    this.input.focus();
   }
 
   private showEmpty(message: string) {

@@ -194,7 +194,7 @@ fn score_text(query: &str, title: &str, subtitle: &str, keywords: &[String]) -> 
 #[cfg(test)]
 mod tests {
     use super::{RecentSource, SearchSource, StaticCommandSource};
-    use crate::plugin::manifest::{CommandMode, PluginCommand, PluginManifest};
+    use crate::plugin::manifest::{CommandMode, PluginCommand, PluginManifest, PluginUiConfig};
     use crate::plugin::registry::{PluginMetadata, PluginStatus, RegisteredPlugin};
     use crate::storage::RecentEntry;
     use anyhow::Result;
@@ -224,6 +224,7 @@ mod tests {
                 keywords: vec!["web".into()],
                 platforms: vec![],
                 min_app_version: None,
+                ui: PluginUiConfig::default(),
             },
             metadata: PluginMetadata {
                 plugin_id: "web-search".into(),

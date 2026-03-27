@@ -35,6 +35,25 @@ pub struct PluginCommand {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default, rename_all = "camelCase")]
+pub struct PluginUiConfig {
+    #[serde(default = "default_show_search_input")]
+    pub show_search_input: bool,
+}
+
+impl Default for PluginUiConfig {
+    fn default() -> Self {
+        Self {
+            show_search_input: default_show_search_input(),
+        }
+    }
+}
+
+fn default_show_search_input() -> bool {
+    true
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct PluginManifest {
     pub id: String,
     pub name: String,
@@ -56,6 +75,8 @@ pub struct PluginManifest {
     pub platforms: Vec<String>,
     #[serde(default)]
     pub min_app_version: Option<String>,
+    #[serde(default)]
+    pub ui: PluginUiConfig,
 }
 
 impl PluginManifest {
@@ -92,8 +113,9 @@ impl PluginManifest {
 
 #[cfg(test)]
 mod tests {
-    use super::{CommandMode, PluginCommand, PluginManifest};
+    use super::{CommandMode, PluginCommand, PluginManifest, PluginUiConfig};
     use anyhow::Result;
+    use serde_json::json;
 
     #[test]
     fn validates_manifest() -> Result<()> {
@@ -117,8 +139,36 @@ mod tests {
             keywords: vec![],
             platforms: vec![],
             min_app_version: None,
+            ui: PluginUiConfig::default(),
         };
         manifest.validate()?;
+        Ok(())
+    }
+
+    #[test]
+    fn defaults_search_input_when_ui_missing() -> Result<()> {
+        let value = json!({
+            "id": "demo",
+            "name": "Demo",
+            "version": "0.1.0",
+            "entry": "index.html"
+        });
+        let manifest: PluginManifest = serde_json::from_value(value)?;
+        assert!(manifest.ui.show_search_input);
+        Ok(())
+    }
+
+    #[test]
+    fn defaults_search_input_when_ui_field_missing() -> Result<()> {
+        let value = json!({
+            "id": "demo",
+            "name": "Demo",
+            "version": "0.1.0",
+            "entry": "index.html",
+            "ui": {}
+        });
+        let manifest: PluginManifest = serde_json::from_value(value)?;
+        assert!(manifest.ui.show_search_input);
         Ok(())
     }
 }
