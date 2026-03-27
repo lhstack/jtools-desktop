@@ -75,10 +75,29 @@ jobs:
           tauriScript: bun tauri
           args: ${{ matrix.args }}
 
-      - name: Upload workflow artifacts
+      - name: Normalize artifact paths
         if: steps.tauri_build.outputs.artifactPaths != '' && steps.tauri_build.outputs.artifactPaths != '[]'
+        id: artifact_paths
+        shell: pwsh
+        run: |
+          $raw = @'${{ steps.tauri_build.outputs.artifactPaths }}'@
+          if ([string]::IsNullOrWhiteSpace($raw) -or $raw -eq '[]') {
+            exit 0
+          }
+          $paths = $raw | ConvertFrom-Json
+          if ($paths -is [string]) {
+            $paths = @($paths)
+          }
+          "paths<<EOF" >> $env:GITHUB_OUTPUT
+          foreach ($item in $paths) {
+            "$item" >> $env:GITHUB_OUTPUT
+          }
+          "EOF" >> $env:GITHUB_OUTPUT
+
+      - name: Upload workflow artifacts
+        if: steps.artifact_paths.outputs.paths != ''
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.name }}
-          path: ${{ join(fromJSON(steps.tauri_build.outputs.artifactPaths), '\n') }}
+          path: ${{ steps.artifact_paths.outputs.paths }}
           if-no-files-found: error
