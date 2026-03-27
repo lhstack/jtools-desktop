@@ -158,6 +158,8 @@ class SearchApp {
   private searchToken = 0;
   private lastAppliedHeight = 0;
   private lastAppliedWidth = 0;
+  private focusRecoveryTimer: number | null = null;
+  private isInputComposing = false;
   private activePlugin: ActivePlugin | null = null;
   private pendingPluginQuery = "";
   private pluginFrameReady = false;
@@ -217,6 +219,9 @@ class SearchApp {
                 class="search-input"
                 type="text"
                 autocomplete="off"
+                autocapitalize="off"
+                autocorrect="off"
+                spellcheck="false"
                 placeholder="搜索插件、命令和动作"
               />
             </section>
@@ -321,6 +326,12 @@ class SearchApp {
       const value = (event.target as HTMLInputElement).value;
       this.scheduleSearch(value);
     });
+    input.addEventListener("compositionstart", () => {
+      this.isInputComposing = true;
+    });
+    input.addEventListener("compositionend", () => {
+      this.isInputComposing = false;
+    });
 
     input.addEventListener("keydown", async (event) => {
       if (event.key === "Escape") {
@@ -420,7 +431,9 @@ class SearchApp {
 
     window.addEventListener("message", this.onPluginMessage);
     window.addEventListener("keydown", this.onWindowKeydown);
-    input.focus();
+    window.addEventListener("focus", this.onHostWindowActivated);
+    document.addEventListener("visibilitychange", this.onVisibilityChange);
+    this.scheduleFocusRecovery();
   }
 
   private mountManageShell(root: HTMLElement) {
@@ -507,6 +520,16 @@ class SearchApp {
       if (this.shouldEscapeHideToTray()) {
         await this.hideToTray();
       }
+    }
+  };
+
+  private onHostWindowActivated = () => {
+    this.scheduleFocusRecovery();
+  };
+
+  private onVisibilityChange = () => {
+    if (!document.hidden) {
+      this.scheduleFocusRecovery();
     }
   };
 
@@ -884,7 +907,9 @@ class SearchApp {
       this.hasSearched = false;
       this.results = [];
       this.selectedIndex = 0;
-      void this.render();
+      void (async () => {
+        await this.render();
+      })();
       return;
     }
 
@@ -1796,6 +1821,35 @@ class SearchApp {
     });
   }
 
+  private scheduleFocusRecovery() {
+    if (!this.elements || this.manageMode) {
+      return;
+    }
+    if (this.isInputComposing) {
+      return;
+    }
+    if (this.focusRecoveryTimer !== null) {
+      window.clearTimeout(this.focusRecoveryTimer);
+    }
+    this.focusRecoveryTimer = window.setTimeout(() => {
+      this.focusRecoveryTimer = null;
+      this.focusSearchInput();
+    }, 16);
+  }
+
+  private focusSearchInput() {
+    if (!this.elements || this.manageMode) {
+      return;
+    }
+    if (this.isInputComposing) {
+      return;
+    }
+    const input = this.elements.input;
+    if (document.activeElement !== input) {
+      input.focus();
+    }
+  }
+
   private async resizeWindowToContent() {
     if (!this.elements) {
       return;
@@ -1939,6 +1993,9 @@ class PluginWindowApp {
             class="plugin-window-input"
             type="text"
             autocomplete="off"
+            autocapitalize="off"
+            autocorrect="off"
+            spellcheck="false"
             placeholder="输入关键词"
           />
         </header>

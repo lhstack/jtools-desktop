@@ -55,6 +55,27 @@ jtools.postHookResults(token, [
 ]);
 ```
 
+接收宿主搜索输入（view/search 模式）示例：
+
+```ts
+function onHostMessage(event: MessageEvent<HostMessageData>) {
+  const data = event.data;
+  if (!data || typeof data !== "object" || !("type" in data)) return;
+
+  if (data.type === "jtools-host-query") {
+    // 宿主输入框内容实时同步到插件
+    const query = String(data.query ?? "");
+  }
+
+  if (data.type === "jtools-hook-search") {
+    // search 模式下的 hook 查询
+    const query = String(data.query ?? "");
+    const token = Number(data.token ?? 0);
+    jtools.postHookResults(token, []);
+  }
+}
+```
+
 ---
 
 ## 3. 开发命令

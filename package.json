@@ -1,13 +1,14 @@
 {
   "name": "jtools-desktop",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.0.2",
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 1420",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "tauri:build:win": "tauri build --config src-tauri/tauri.windows.conf.json --bundles nsis"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.8.0",

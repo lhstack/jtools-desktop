@@ -2,6 +2,11 @@
 
 `jtools` 是一个基于 **Rust Core + Tauri Desktop + 前端启动器 UI** 的插件化桌面启动器。
 
+## 版本说明
+
+- 当前版本：`0.0.2`
+- 版本状态：稳定性迭代版本，重点在启动器输入体验、窗口行为与跨平台构建流程完善。
+
 核心能力：
 
 - 全局热键唤起（默认 `Alt+Space`）
@@ -70,7 +75,7 @@ bun run build
 桌面打包（Windows，NSIS）：
 
 ```bash
-bun run tauri build --bundles nsis
+bun run tauri:build:win
 ```
 
 安装包输出目录：
@@ -84,8 +89,9 @@ src-tauri/target/release/bundle/nsis/
 ## Windows 打包注意事项
 
 1. 发布版已关闭控制台黑窗（`windows_subsystem = "windows"`）。
-2. `tauri.conf.json` 默认使用 `nsis`，避免 `msi` 依赖 WiX 下载失败。
-3. 已通过 `bundle.resources + installer-hooks.nsh` 将 `WebView2Loader.dll` 复制到安装目录，避免用户机器启动时报错“找不到 WebView2Loader.dll”。
+2. `tauri.conf.json` 为跨平台默认配置；Windows 专用打包配置在 `src-tauri/tauri.windows.conf.json`。
+3. Windows 打包请使用 `bun run tauri:build:win`，避免在 macOS/Linux 上误加载 `WebView2Loader.dll` 资源。
+4. Windows 配置中通过 `bundle.resources + installer-hooks.nsh` 将 `WebView2Loader.dll` 复制到安装目录，避免用户机器启动时报错“找不到 WebView2Loader.dll”。
 
 ---
 
@@ -140,5 +146,5 @@ bun run tauri dev
 bun run build
 
 # 打包安装程序（Windows NSIS）
-bun run tauri build --bundles nsis
+bun run tauri:build:win
 ```

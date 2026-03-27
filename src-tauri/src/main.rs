@@ -30,16 +30,12 @@ where
     F: FnOnce() -> T + Send + 'static,
 {
     let window = app.get_webview_window("main");
-    if let Some(main) = window.as_ref() {
-        let _ = main.set_always_on_top(false);
-    }
 
     let result = tauri::async_runtime::spawn_blocking(dialog_task)
         .await
         .map_err(|error| error.to_string());
 
     if let Some(main) = window.as_ref() {
-        let _ = main.set_always_on_top(true);
         let _ = main.set_focus();
     }
 
@@ -1078,6 +1074,20 @@ fn resize_launcher_window(app: tauri::AppHandle, height: f64, width: Option<f64>
 
     let clamped_height = height.clamp(116.0, 760.0).round();
     let clamped_width = width.unwrap_or(720.0).clamp(720.0, 1280.0).round();
+
+    // Programmatic resize usually works even when the window is not user-resizable.
+    // Keep it this way to avoid focus loss caused by toggling resizable on/off.
+    if window
+        .set_size(tauri::Size::Logical(tauri::LogicalSize::new(
+            clamped_width,
+            clamped_height,
+        )))
+        .is_ok()
+    {
+        return Ok(());
+    }
+
+    // Compatibility fallback for platforms/window managers that reject set_size on non-resizable windows.
     window
         .set_resizable(true)
         .map_err(|error| error.to_string())?;
@@ -1088,7 +1098,6 @@ fn resize_launcher_window(app: tauri::AppHandle, height: f64, width: Option<f64>
         )))
         .map_err(|error| error.to_string());
     let lock_result = window.set_resizable(false).map_err(|error| error.to_string());
-
     resize_result?;
     lock_result?;
     Ok(())
