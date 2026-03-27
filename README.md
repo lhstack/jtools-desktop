@@ -91,7 +91,7 @@ src-tauri/target/release/bundle/nsis/
 1. 发布版已关闭控制台黑窗（`windows_subsystem = "windows"`）。
 2. `tauri.conf.json` 为跨平台默认配置；Windows 专用打包配置在 `src-tauri/tauri.windows.conf.json`。
 3. Windows 打包请使用 `bun run tauri:build:win`，避免在 macOS/Linux 上加载 Windows 专用配置。
-4. 若目标机器缺少 WebView2 Runtime，请按系统提示安装（或由安装器引导安装）。
+4. 发布构建会按架构打包 `WebView2Loader.dll`，并通过 `bundle.resources + installer-hooks.nsh` 复制到安装目录。
 
 ---
 

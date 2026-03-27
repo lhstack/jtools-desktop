@@ -18,9 +18,11 @@ jobs:
         include:
           - name: windows-amd64
             runner: windows-2025
+            webview2_arch: x64
             args: --config src-tauri/tauri.windows.conf.json --bundles nsis
           - name: windows-arm64
             runner: windows-11-arm
+            webview2_arch: arm64
             args: --config src-tauri/tauri.windows.conf.json --bundles nsis
           - name: macos-aarch64
             runner: macos-15
@@ -61,6 +63,33 @@ jobs:
 
       - name: Install frontend dependencies
         run: bun install --frozen-lockfile
+
+      - name: Prepare WebView2Loader.dll
+        if: startsWith(matrix.runner, 'windows')
+        shell: pwsh
+        run: |
+          $arch = '${{ matrix.webview2_arch }}'
+          if ([string]::IsNullOrWhiteSpace($arch)) {
+            throw "matrix.webview2_arch is empty"
+          }
+
+          $pkgPath = Join-Path $env:RUNNER_TEMP "Microsoft.Web.WebView2.nupkg"
+          $extractDir = Join-Path $env:RUNNER_TEMP "webview2_pkg"
+
+          Invoke-WebRequest -Uri "https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2" -OutFile $pkgPath
+          if (Test-Path $extractDir) {
+            Remove-Item $extractDir -Recurse -Force
+          }
+          Expand-Archive -Path $pkgPath -DestinationPath $extractDir -Force
+
+          $source = Join-Path $extractDir "build/native/$arch/WebView2Loader.dll"
+          if (!(Test-Path $source)) {
+            throw "WebView2Loader.dll not found at $source"
+          }
+
+          New-Item -ItemType Directory -Force -Path "src-tauri/target/release" | Out-Null
+          Copy-Item $source "src-tauri/target/release/WebView2Loader.dll" -Force
+          Write-Host "Prepared WebView2Loader.dll for $arch"
 
       - name: Build Tauri bundles and upload to GitHub Release
         id: tauri_build
