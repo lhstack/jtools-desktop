@@ -95,6 +95,23 @@ src-tauri/target/release/bundle/nsis/
 
 ---
 
+## macOS 安装提示（“已损坏”）
+
+从未签名或未公证的构建产物安装时，macOS 可能提示“App 已损坏”或“无法验证开发者”。
+
+可按下面步骤处理：
+
+1. 在 Finder 中对 `jtools.app` 右键，选择“打开”，再二次确认打开。
+2. 若仍被拦截，在终端执行（仅对可信来源包执行）：
+
+```bash
+sudo xattr -dr com.apple.quarantine /Applications/jtools.app
+```
+
+如果你的 App 不在 `/Applications`，请替换为实际路径。
+
+---
+
 ## 插件系统（jtp）
 
 管理中心支持：
