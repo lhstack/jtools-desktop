@@ -42,7 +42,7 @@
       "icons/icon.ico"
     ],
     "resources": {
-      "target/release/WebView2Loader.dll": "resources/WebView2Loader.dll"
+      "resources/WebView2Loader.dll": "resources/WebView2Loader.dll"
     },
     "windows": {
       "nsis": {

@@ -87,9 +87,10 @@ jobs:
             throw "WebView2Loader.dll not found at $source"
           }
 
-          New-Item -ItemType Directory -Force -Path "src-tauri/target/release" | Out-Null
-          Copy-Item $source "src-tauri/target/release/WebView2Loader.dll" -Force
-          Write-Host "Prepared WebView2Loader.dll for $arch"
+          New-Item -ItemType Directory -Force -Path "src-tauri/resources" | Out-Null
+          Copy-Item $source "src-tauri/resources/WebView2Loader.dll" -Force
+          $file = Get-Item "src-tauri/resources/WebView2Loader.dll"
+          Write-Host "Prepared WebView2Loader.dll for $arch, size=$($file.Length) bytes"
 
       - name: Build Tauri bundles and upload to GitHub Release
         id: tauri_build
