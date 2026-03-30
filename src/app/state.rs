@@ -450,19 +450,39 @@ async fn seed_builtin_plugins(paths: &AppPaths) -> Result<()> {
 }
 
 fn builtin_root() -> Option<PathBuf> {
-    let candidates = [
+    let mut candidates = vec![
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("plugins")
             .join("builtin"),
-        std::env::current_dir()
-            .ok()?
-            .join("plugins")
-            .join("builtin"),
-        std::env::current_dir()
-            .ok()?
-            .parent()
-            .map(|path| path.join("plugins").join("builtin"))?,
     ];
+
+    if let Ok(current_dir) = std::env::current_dir() {
+        candidates.push(current_dir.join("plugins").join("builtin"));
+        if let Some(parent) = current_dir.parent() {
+            candidates.push(parent.join("plugins").join("builtin"));
+        }
+    }
+
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(exe_dir) = exe.parent() {
+            candidates.push(exe_dir.join("plugins").join("builtin"));
+            candidates.push(exe_dir.join("resources").join("plugins").join("builtin"));
+            candidates.push(
+                exe_dir
+                    .join("..")
+                    .join("Resources")
+                    .join("plugins")
+                    .join("builtin"),
+            );
+            candidates.push(
+                exe_dir
+                    .join("..")
+                    .join("resources")
+                    .join("plugins")
+                    .join("builtin"),
+            );
+        }
+    }
 
     candidates.into_iter().find(|path| path.exists())
 }

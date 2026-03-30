@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { createApp, h, type App as VueApp } from "vue";
 import ElementPlus, { ElAside, ElButton, ElContainer, ElMain, ElMenu, ElMenuItem } from "element-plus";
@@ -131,7 +132,7 @@ type Elements = {
 };
 
 class SearchApp {
-  private readonly launcherWidth = 720;
+  private readonly launcherWidth = 1120;
   private readonly managerWidth = 1120;
   private readonly managerHeight = 756;
   private readonly maxWindowHeight = 760;
@@ -158,7 +159,7 @@ class SearchApp {
   private searchToken = 0;
   private lastAppliedHeight = 0;
   private lastAppliedWidth = 0;
-  private focusRecoveryTimer: number | null = null;
+  private focusRecoveryTimers: number[] = [];
   private isInputComposing = false;
   private activePlugin: ActivePlugin | null = null;
   private pendingPluginQuery = "";
@@ -177,6 +178,9 @@ class SearchApp {
     }
 
     this.mount();
+    await listen("jtools://launcher-shown", () => {
+      this.scheduleFocusRecovery();
+    });
     await this.loadStatus();
     await this.prepareHookFrames();
     await this.render();
@@ -1828,13 +1832,24 @@ class SearchApp {
     if (this.isInputComposing) {
       return;
     }
-    if (this.focusRecoveryTimer !== null) {
-      window.clearTimeout(this.focusRecoveryTimer);
-    }
-    this.focusRecoveryTimer = window.setTimeout(() => {
-      this.focusRecoveryTimer = null;
+    this.clearFocusRecoveryTimers();
+    const recover = () => {
       this.focusSearchInput();
-    }, 16);
+    };
+    recover();
+    for (const delay of [24, 80, 180, 320]) {
+      const timer = window.setTimeout(() => {
+        recover();
+      }, delay);
+      this.focusRecoveryTimers.push(timer);
+    }
+  }
+
+  private clearFocusRecoveryTimers() {
+    for (const timer of this.focusRecoveryTimers) {
+      window.clearTimeout(timer);
+    }
+    this.focusRecoveryTimers = [];
   }
 
   private focusSearchInput() {

@@ -3,6 +3,7 @@
 /node_modules
 /runtime
 /src-tauri/target
+/src-tauri/resources/WebView2Loader.dll
 /.idea
 /.vscode
 /.tmp-*

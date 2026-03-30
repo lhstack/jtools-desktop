@@ -2181,7 +2181,7 @@ dependencies = [
 
 [[package]]
 name = "jtools"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "anyhow",
  "arboard",
@@ -2197,7 +2197,7 @@ dependencies = [
 
 [[package]]
 name = "jtools-desktop"
-version = "0.0.2"
+version = "0.0.3"
 dependencies = [
  "anyhow",
  "arboard",

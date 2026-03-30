@@ -11,10 +11,10 @@ use std::fs::File;
 use std::io::{Cursor, Read, Write};
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tauri::menu::{MenuBuilder, MenuItemBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{Manager, State, Url, WindowEvent};
+use tauri::{Emitter, Manager, State, Url, WindowEvent};
 use tauri_plugin_global_shortcut::ShortcutState;
 use tokio::sync::Mutex;
 use zip::write::FileOptions;
@@ -1073,7 +1073,7 @@ fn resize_launcher_window(app: tauri::AppHandle, height: f64, width: Option<f64>
         .ok_or_else(|| "main window not found".to_string())?;
 
     let clamped_height = height.clamp(116.0, 760.0).round();
-    let clamped_width = width.unwrap_or(720.0).clamp(720.0, 1280.0).round();
+    let clamped_width = width.unwrap_or(1120.0).clamp(720.0, 1280.0).round();
 
     // Programmatic resize usually works even when the window is not user-resizable.
     // Keep it this way to avoid focus loss caused by toggling resizable on/off.
@@ -1151,19 +1151,28 @@ fn show_main_window(app: &tauri::AppHandle) -> Result<(), String> {
     window.unminimize().map_err(|error| error.to_string())?;
     window.show().map_err(|error| error.to_string())?;
     window.set_focus().map_err(|error| error.to_string())?;
+    let _ = window.emit("jtools://launcher-shown", ());
     Ok(())
 }
 
-fn toggle_main_window(app: &tauri::AppHandle) -> Result<(), String> {
-    let window = app
-        .get_webview_window("main")
-        .ok_or_else(|| "main window not found".to_string())?;
-    let visible = window.is_visible().map_err(|error| error.to_string())?;
-    if visible {
-        window.hide().map_err(|error| error.to_string())?;
-        return Ok(());
-    }
-    show_main_window(app)
+fn activate_main_window(app: &tauri::AppHandle) -> Result<(), String> {
+    show_main_window(app)?;
+
+    let app_handle = app.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        for delay_ms in [70_u64, 180_u64] {
+            std::thread::sleep(Duration::from_millis(delay_ms));
+            let Some(window) = app_handle.get_webview_window("main") else {
+                return;
+            };
+            let _ = window.unminimize();
+            let _ = window.show();
+            let _ = window.set_focus();
+            let _ = window.emit("jtools://launcher-shown", ());
+        }
+    });
+
+    Ok(())
 }
 
 fn normalize_shortcut(value: &str) -> String {
@@ -1197,8 +1206,8 @@ fn setup_global_hotkey(app: &tauri::App, configured_hotkey: &str) {
 
     let plugin = builder
         .with_handler(|app, _shortcut, event| {
-            if event.state == ShortcutState::Pressed {
-                let _ = toggle_main_window(app);
+            if event.state == ShortcutState::Released {
+                let _ = activate_main_window(app);
             }
         })
         .build();
